@@ -109,12 +109,6 @@
       @pause="onMusicPause"
       @loadeddata="onAudioLoaded"
     />
-    <audio
-      ref="voice"
-      :src="voiceSrc"
-      preload="auto"
-      @ended="onVoiceEnded"
-    />
   </div>
 </template>
 
@@ -127,7 +121,6 @@ import SignalDisconnect from '@/components/SignalDisconnect.vue'
 import ForceReturn from '@/components/ForceReturn.vue'
 import SealedFinale from '@/components/SealedFinale.vue'
 import bgmSrc from '@/assets/music/chenhunxian.mp3'
-import voiceSrc from '@/assets/music/voice-return.mp3'
 
 const HARASS_HINTS = [
   '拒绝并不能稳住轴线。',
@@ -162,11 +155,9 @@ export default {
       showCollapseShatter: true,
       disorderActive: true,
       bgmSrc,
-      voiceSrc,
       musicUnlocked: false,
       forceResume: true,
       fadingMusic: false,
-      voicePlaying: false,
       timelineRatio: 0,
       timers: []
     }
@@ -207,7 +198,7 @@ export default {
     },
     ensureMusic(vol) {
       const audio = this.$refs.bgm
-      if (!audio || !this.musicUnlocked || this.voicePlaying) return
+      if (!audio || !this.musicUnlocked) return
       let target = vol
       if (typeof target !== 'number') {
         target = this.phase === 'playPast' ? this.volumeForTimeline(this.timelineRatio) : BGM_IDLE_VOL
@@ -222,22 +213,22 @@ export default {
       if (p && p.catch) p.catch(() => {})
     },
     onTimeline(payload) {
-      if (this.phase !== 'playPast' || this.fadingMusic || this.voicePlaying) return
+      if (this.phase !== 'playPast' || this.fadingMusic) return
       this.timelineRatio = payload && payload.ratio != null ? payload.ratio : 0
       const audio = this.$refs.bgm
       if (!audio) return
       audio.volume = this.volumeForTimeline(this.timelineRatio)
     },
     onAudioLoaded() {
-      if (this.musicUnlocked && !this.voicePlaying) this.ensureMusic()
+      if (this.musicUnlocked) this.ensureMusic()
     },
     onMusicPause() {
-      if (!this.forceResume || !this.musicUnlocked || this.fadingMusic || this.voicePlaying) return
+      if (!this.forceResume || !this.musicUnlocked || this.fadingMusic) return
       this.queue(() => this.ensureMusic(), 40)
     },
     onMusicStutter(payload) {
       const audio = this.$refs.bgm
-      if (!audio || !this.musicUnlocked || this.fadingMusic || this.voicePlaying) return
+      if (!audio || !this.musicUnlocked || this.fadingMusic) return
       const base =
         this.phase === 'playPast' ? this.volumeForTimeline(this.timelineRatio) : BGM_IDLE_VOL
       try {
@@ -245,7 +236,7 @@ export default {
           audio.volume = 0
           audio.playbackRate = 0.35
           window.setTimeout(() => {
-            if (!this.$refs.bgm || this.fadingMusic || this.voicePlaying) return
+            if (!this.$refs.bgm || this.fadingMusic) return
             this.$refs.bgm.volume = base
             this.$refs.bgm.playbackRate = 1.8
             this.ensureMusic(base)
@@ -280,49 +271,24 @@ export default {
       }
       tick()
     },
-    startReturnVoice() {
+    goToFinale() {
       const bgm = this.$refs.bgm
-      const voice = this.$refs.voice
-      if (!voice) {
-        this.phase = 'sealedNow'
-        return
-      }
-      this.voicePlaying = true
       this.fadingMusic = true
       this.forceResume = false
-
-      const beginVoice = () => {
-        this.queue(() => {
-          try {
-            voice.currentTime = 0
-            voice.volume = 0
-          } catch (e) {
-            /* ignore */
-          }
-          const p = voice.play()
-          if (p && p.catch) p.catch(() => {})
-          this.fadeVolume(voice, 0, 1, 1600, () => {
-            this.fadingMusic = false
-          })
-        }, 450)
-      }
-
       if (bgm) {
-        this.fadeVolume(bgm, bgm.volume, 0, 2000, () => {
+        this.fadeVolume(bgm, bgm.volume, 0, 1400, () => {
           try {
             bgm.pause()
           } catch (e) {
             /* ignore */
           }
-          beginVoice()
+          this.fadingMusic = false
+          this.phase = 'sealedNow'
         })
       } else {
-        beginVoice()
+        this.fadingMusic = false
+        this.phase = 'sealedNow'
       }
-    },
-    onVoiceEnded() {
-      this.voicePlaying = false
-      this.phase = 'sealedNow'
     },
     randomPos() {
       return {
@@ -361,12 +327,9 @@ export default {
       }, 2800)
     },
     onAllVideosDone() {
-      // 拉长收束紊乱：穿梭感
       this.phase = 'endDisorder'
       const audio = this.$refs.bgm
-      if (audio && !this.voicePlaying) {
-        this.fadeVolume(audio, audio.volume, BGM_PEAK_VOL, 1200)
-      }
+      if (audio) this.fadeVolume(audio, audio.volume, BGM_PEAK_VOL, 1200)
       this.queue(() => {
         this.phase = 'signalBreak'
         this.queue(() => {
@@ -397,18 +360,14 @@ export default {
       this.phase = 'collapseForce'
       this.showCollapseShatter = true
 
-      // 破碎拉长 → 强制坍塌 → 再丝滑切入配音
+      // 破碎 → 坍塌画面 → 可靠进入「交给时间」（不依赖配音）
       this.queue(() => {
         this.showCollapseShatter = false
-      }, 3800)
+      }, 3200)
 
       this.queue(() => {
-        this.startReturnVoice()
-      }, 7800)
-
-      this.queue(() => {
-        if (this.phase !== 'sealedNow') this.phase = 'sealedNow'
-      }, 60000)
+        this.goToFinale()
+      }, 7200)
     }
   }
 }

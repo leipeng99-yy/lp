@@ -3,7 +3,8 @@
     class="temporal-disorder"
     :class="['is-' + mode, { 'is-dim': dim, 'is-burst': bursting, 'is-lite': isLite }]"
   >
-    <div class="temporal-disorder__stage">
+    <!-- 桌面：视频紊乱；手机：纯 CSS 电影闪切 -->
+    <div v-if="!isLite" class="temporal-disorder__stage">
       <video
         v-for="(src, i) in layerSrcs"
         :key="mode + '-' + i"
@@ -13,15 +14,17 @@
         :src="src"
         muted
         playsinline
-        webkit-playsinline
         preload="metadata"
       />
+    </div>
+    <div v-else class="temporal-disorder__lite-stage" aria-hidden="true">
+      <div class="temporal-disorder__lite-wash" />
+      <div class="temporal-disorder__lite-slash" />
     </div>
 
     <div class="temporal-disorder__axis" aria-hidden="true" />
     <div class="temporal-disorder__blackout" :style="{ opacity: blackout }" />
     <div v-if="!isLite" class="temporal-disorder__scan" aria-hidden="true" />
-    <div v-if="!isLite" class="temporal-disorder__grain" aria-hidden="true" />
 
     <div class="temporal-disorder__copy">
       <p class="temporal-disorder__eyebrow">{{ eyebrow }}</p>
@@ -66,23 +69,19 @@ export default {
     }
   },
   mounted() {
-    const list = videoList.map((v) => v.src)
-    const count = this.isLite ? 1 : this.mode === 'close' ? 2 : 2
-    if (this.mode === 'close') {
-      this.layerSrcs = list.slice(-count)
-    } else {
-      this.layerSrcs = list.slice(0, count)
+    if (!this.isLite) {
+      const list = videoList.map((v) => v.src)
+      this.layerSrcs = this.mode === 'close' ? list.slice(-2) : list.slice(0, 2)
+      this.$nextTick(() => this.bootVideos())
     }
-    this.$nextTick(() => {
-      this.bootVideos()
-      if (this.active) this.startPulse()
-    })
+    if (this.active) this.startPulse()
   },
   beforeDestroy() {
     this.stopPulse(true)
   },
   methods: {
     getVideos() {
+      if (this.isLite) return []
       const result = []
       for (let i = 0; i < this.layerSrcs.length; i++) {
         const ref = this.$refs['layer' + i]
@@ -97,8 +96,7 @@ export default {
           try {
             const dur = video.duration && !Number.isNaN(video.duration) ? video.duration : 4
             video.currentTime = Math.min(dur * (0.15 + i * 0.12), Math.max(0.1, dur - 0.2))
-            // 手机少用超高 playbackRate
-            video.playbackRate = this.isLite ? 1.25 : 3.5 + i
+            video.playbackRate = 3.5 + i
             const p = video.play()
             if (p && p.catch) p.catch(() => {})
           } catch (e) {
@@ -111,14 +109,13 @@ export default {
     },
     calmGap() {
       if (this.sparse) return 2800 + Math.random() * 1800
-      // 收束紊乱更疏，更像穿梭拉长
       if (this.mode === 'close') return 1800 + Math.random() * 1400
-      return 1400 + Math.random() * 1200
+      return this.isLite ? 1600 + Math.random() * 1000 : 1400 + Math.random() * 1200
     },
     startPulse() {
       this.stopPulse(false)
       this.running = true
-      this.applyVideoChaos(false)
+      if (!this.isLite) this.applyVideoChaos(false)
       const schedule = () => {
         if (!this.running) return
         this.pulseTimer = window.setTimeout(() => this.doBurst(schedule), this.calmGap())
@@ -132,18 +129,25 @@ export default {
       if (!this.running) return
       this.bursting = true
       this.blackout = 0.95
-      this.applyVideoChaos(true)
+      if (!this.isLite) this.applyVideoChaos(true)
       this.$emit('stutter', { hard: true })
 
-      const flashMs = this.isLite ? 120 + Math.random() * 80 : 90 + Math.random() * 100
+      const flashMs = this.isLite ? 140 + Math.random() * 100 : 90 + Math.random() * 100
       this.pulseTimer = window.setTimeout(() => {
         if (!this.isLite && Math.random() > 0.6) {
-          this.blackout = 0.15
+          this.blackout = 0.12
           this.pulseTimer = window.setTimeout(() => {
             this.blackout = 0.9
             this.applyVideoChaos(true)
             this.pulseTimer = window.setTimeout(() => this.endBurst(schedule), 70 + Math.random() * 80)
           }, 70)
+        } else if (this.isLite && Math.random() > 0.45) {
+          // 手机：二次短闪，纯黑白
+          this.blackout = 0.2
+          this.pulseTimer = window.setTimeout(() => {
+            this.blackout = 0.92
+            this.pulseTimer = window.setTimeout(() => this.endBurst(schedule), 90)
+          }, 80)
         } else {
           this.endBurst(schedule)
         }
@@ -152,7 +156,7 @@ export default {
     endBurst(schedule) {
       this.blackout = 0
       this.bursting = false
-      this.applyVideoChaos(false)
+      if (!this.isLite) this.applyVideoChaos(false)
       this.$emit('stutter', { hard: false })
       if (typeof schedule === 'function') schedule()
     },
@@ -160,28 +164,14 @@ export default {
       this.getVideos().forEach((video, i) => {
         try {
           if (intense) {
-            if (this.isLite) {
-              // 手机：短跳帧 + 轻微加速，避免解码炸
-              video.playbackRate = 1.6 + Math.random() * 0.6
-              if (video.duration) {
-                const jump = 0.25 + Math.random() * 0.55
-                video.currentTime = Math.min(
-                  video.duration - 0.05,
-                  Math.max(0.05, video.currentTime + (Math.random() > 0.5 ? jump : -jump * 0.4))
-                )
-              }
-            } else {
-              video.playbackRate = 12 + Math.random() * 6 + i * 0.5
-              if (video.duration) {
-                const jump = 0.4 + Math.random() * 1.2
-                video.currentTime = Math.min(
-                  video.duration - 0.05,
-                  Math.max(0.05, video.currentTime + (Math.random() > 0.5 ? jump : -jump * 0.5))
-                )
-              }
+            video.playbackRate = 12 + Math.random() * 6 + i * 0.5
+            if (video.duration) {
+              const jump = 0.4 + Math.random() * 1.2
+              video.currentTime = Math.min(
+                video.duration - 0.05,
+                Math.max(0.05, video.currentTime + (Math.random() > 0.5 ? jump : -jump * 0.5))
+              )
             }
-          } else if (this.isLite) {
-            video.playbackRate = 1.15
           } else {
             video.playbackRate = 3 + Math.random() * 1.5 + i * 0.2
           }
@@ -200,7 +190,7 @@ export default {
       this.pulseTimer = null
       this.blackout = 0
       this.bursting = false
-      if (resetRate) {
+      if (resetRate && !this.isLite) {
         this.getVideos().forEach((video) => {
           try {
             video.playbackRate = 1
@@ -231,12 +221,8 @@ export default {
     z-index: 65;
   }
 
-  &.is-burst .temporal-disorder__stage {
+  &.is-burst:not(.is-lite) .temporal-disorder__stage {
     transform: scale(1.06);
-  }
-
-  &.is-lite.is-burst .temporal-disorder__stage {
-    transform: scale(1.03);
   }
 
   &__stage {
@@ -251,6 +237,7 @@ export default {
     width: 100%;
     height: 100%;
     object-fit: cover;
+    filter: contrast(1.15) saturate(0.7) brightness(0.8);
 
     &.layer-1 {
       mix-blend-mode: screen;
@@ -259,16 +246,35 @@ export default {
     }
   }
 
-  &.is-lite &__video {
-    filter: none;
-
-    &.layer-1 {
-      display: none;
-    }
+  &__lite-stage {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse 60% 50% at 50% 45%, #1a0a12 0%, #05070c 70%);
   }
 
-  &:not(.is-lite) &__video {
-    filter: contrast(1.15) saturate(0.7) brightness(0.8);
+  &__lite-wash {
+    position: absolute;
+    inset: -10%;
+    background:
+      linear-gradient(115deg, rgba(176, 30, 58, 0.22), transparent 45%, rgba(120, 160, 220, 0.12));
+    animation: liteDrift 4.5s ease-in-out infinite alternate;
+  }
+
+  &.is-burst &__lite-wash {
+    animation: liteBurst 0.35s steps(2) both;
+  }
+
+  &__lite-slash {
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+      -18deg,
+      transparent 0,
+      transparent 46px,
+      rgba(255, 255, 255, 0.03) 46px,
+      rgba(255, 255, 255, 0.03) 48px
+    );
+    opacity: 0.7;
   }
 
   &__axis {
@@ -283,13 +289,18 @@ export default {
     background: linear-gradient(
       180deg,
       transparent,
-      rgba(200, 208, 220, 0.35) 20%,
-      rgba(176, 30, 58, 0.45) 50%,
-      rgba(200, 208, 220, 0.35) 80%,
+      rgba(200, 208, 220, 0.4) 20%,
+      rgba(176, 30, 58, 0.5) 50%,
+      rgba(200, 208, 220, 0.4) 80%,
       transparent
     );
-    opacity: 0.55;
+    opacity: 0.6;
     animation: axisBreath 3.6s ease-in-out infinite;
+  }
+
+  &.is-burst &__axis {
+    opacity: 1;
+    box-shadow: 0 0 24px rgba(200, 208, 220, 0.35);
   }
 
   &__blackout {
@@ -298,7 +309,7 @@ export default {
     background: #000;
     pointer-events: none;
     z-index: 3;
-    transition: opacity 50ms linear;
+    transition: opacity 40ms linear;
   }
 
   &__scan {
@@ -314,15 +325,6 @@ export default {
       transparent 1px,
       transparent 4px
     );
-  }
-
-  &__grain {
-    position: absolute;
-    inset: 0;
-    z-index: 4;
-    pointer-events: none;
-    opacity: 0.07;
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   }
 
   &__copy {
@@ -375,8 +377,34 @@ export default {
     transform: translateX(-50%) scaleY(0.96);
   }
   50% {
-    opacity: 0.7;
+    opacity: 0.75;
     transform: translateX(-50%) scaleY(1);
+  }
+}
+
+@keyframes liteDrift {
+  from {
+    transform: scale(1) translateX(-2%);
+    opacity: 0.7;
+  }
+  to {
+    transform: scale(1.08) translateX(2%);
+    opacity: 1;
+  }
+}
+
+@keyframes liteBurst {
+  0% {
+    filter: invert(0);
+    transform: scale(1);
+  }
+  40% {
+    filter: invert(0.15);
+    transform: scale(1.12);
+  }
+  100% {
+    filter: invert(0);
+    transform: scale(1.04);
   }
 }
 </style>

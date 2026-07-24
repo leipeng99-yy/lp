@@ -1,6 +1,6 @@
 <template>
   <section class="force-return" :class="{ 'is-lite': isLite }">
-    <div class="force-return__grid">
+    <div v-if="!isLite" class="force-return__grid">
       <div v-for="(src, i) in sources" :key="i" class="force-return__cell">
         <video
           :ref="'fv' + i"
@@ -8,10 +8,14 @@
           :src="src"
           muted
           playsinline
-          webkit-playsinline
           preload="metadata"
         />
       </div>
+    </div>
+    <div v-else class="force-return__lite" aria-hidden="true">
+      <div class="force-return__lite-ring" />
+      <div class="force-return__lite-ring is-delay" />
+      <div class="force-return__lite-flash" />
     </div>
     <div class="force-return__crush" />
     <div class="force-return__copy">
@@ -37,8 +41,8 @@ export default {
     }
   },
   mounted() {
-    const n = this.isLite ? 1 : 3
-    this.sources = videoList.slice(0, n).map((v) => v.src)
+    if (this.isLite) return
+    this.sources = videoList.slice(0, 3).map((v) => v.src)
     this.$nextTick(() => this.startBurst())
   },
   beforeDestroy() {
@@ -59,7 +63,7 @@ export default {
         const boot = () => {
           try {
             video.currentTime = Math.min(0.2, (video.duration || 1) * 0.1)
-            video.playbackRate = this.isLite ? 1.4 : 3 + (i % 3)
+            video.playbackRate = 3 + (i % 3)
             const p = video.play()
             if (p && p.catch) p.catch(() => {})
           } catch (e) {
@@ -72,30 +76,18 @@ export default {
 
       this.running = true
       let last = performance.now()
-      let acc = 0
       const tick = (now) => {
         if (!this.running) return
         const dt = Math.min(0.05, (now - last) / 1000)
         last = now
-        acc += dt
-        // 手机降低 scrub 频率
-        if (this.isLite && acc < 0.18) {
-          this.rafId = requestAnimationFrame(tick)
-          return
-        }
-        if (this.isLite) acc = 0
-
         this.getVideos().forEach((video, i) => {
-          if (!video.duration) return
-          if (this.isLite || i % 2 === 0) {
-            const step = this.isLite ? 0.35 : dt * (8 + i)
-            let t = video.currentTime + step
-            if (t >= video.duration - 0.05) t = 0.05
-            try {
-              video.currentTime = t
-            } catch (e) {
-              /* ignore */
-            }
+          if (!video.duration || i % 2 !== 0) return
+          let t = video.currentTime + dt * (8 + i)
+          if (t >= video.duration - 0.05) t = 0.05
+          try {
+            video.currentTime = t
+          } catch (e) {
+            /* ignore */
           }
         })
         this.rafId = requestAnimationFrame(tick)
@@ -132,16 +124,9 @@ export default {
     inset: -8%;
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    grid-template-rows: repeat(1, 1fr);
     gap: 1px;
     filter: contrast(1.25) saturate(0.55);
     animation: gridSpin 5.6s ease-in both;
-  }
-
-  &.is-lite &__grid {
-    grid-template-columns: 1fr;
-    filter: none;
-    inset: 0;
   }
 
   &__cell {
@@ -156,22 +141,41 @@ export default {
     filter: brightness(0.75);
   }
 
-  &.is-lite &__video {
-    filter: brightness(0.7);
+  &__lite {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 50% 50%, #1c0c14, #05070c 60%);
+  }
+
+  &__lite-ring {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: min(70vw, 420px);
+    height: min(70vw, 420px);
+    margin: calc(min(70vw, 420px) / -2) 0 0 calc(min(70vw, 420px) / -2);
+    border: 1px solid rgba(200, 208, 220, 0.35);
+    border-radius: 50%;
+    animation: ringOut 5.6s ease-out both;
+
+    &.is-delay {
+      animation-delay: 0.35s;
+      opacity: 0.45;
+    }
+  }
+
+  &__lite-flash {
+    position: absolute;
+    inset: 0;
+    background: #fff;
+    opacity: 0;
+    animation: whiteFlash 5.6s ease both;
   }
 
   &__crush {
     position: absolute;
     inset: 0;
-    background:
-      radial-gradient(circle at 50% 50%, transparent 0%, rgba(2, 3, 8, 0.2) 40%, rgba(2, 3, 8, 0.92) 78%),
-      repeating-linear-gradient(
-        0deg,
-        rgba(255, 255, 255, 0.04) 0,
-        rgba(255, 255, 255, 0.04) 1px,
-        transparent 1px,
-        transparent 3px
-      );
+    background: radial-gradient(circle at 50% 50%, transparent 0%, rgba(2, 3, 8, 0.25) 40%, rgba(2, 3, 8, 0.92) 78%);
     animation: crushVeil 5.6s ease both;
   }
 
@@ -217,16 +221,16 @@ export default {
 
 @keyframes crushIn {
   0% {
-    filter: blur(0) contrast(1);
     transform: scale(1);
+    filter: contrast(1);
   }
   55% {
-    filter: blur(0.5px) contrast(1.4);
     transform: scale(1.08);
+    filter: contrast(1.35);
   }
   100% {
-    filter: blur(2px) contrast(1.6);
-    transform: scale(1.18);
+    transform: scale(1.16);
+    filter: contrast(1.5);
   }
 }
 
@@ -251,13 +255,42 @@ export default {
 @keyframes copyHold {
   0% {
     opacity: 0;
-    letter-spacing: 0.4em;
   }
   25% {
     opacity: 1;
   }
   100% {
-    opacity: 0.85;
+    opacity: 0.9;
+  }
+}
+
+@keyframes ringOut {
+  0% {
+    transform: scale(0.55);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(1.45);
+    opacity: 0;
+  }
+}
+
+@keyframes whiteFlash {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  8% {
+    opacity: 0.55;
+  }
+  16% {
+    opacity: 0;
+  }
+  42% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 0;
   }
 }
 </style>
