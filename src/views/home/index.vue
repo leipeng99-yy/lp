@@ -1,88 +1,218 @@
 <template>
-  <div class="home" :class="{ 'is-started': journeyStarted }">
-    <IntroGate :visible="phase === 'gate'" @start="handleStart" />
+  <div class="home">
+    <ChaosFlash v-if="showChaos" :dim="phase === 'askPast'" />
 
-    <TimeShift
-      :visible="phase === 'to-past'"
+    <DisorderDialog
+      v-if="phase === 'askPast'"
+      :visible="dialogVisible"
+      mode="ask"
+      :eyebrow="'TEMPORAL QUERY'"
+      :title="'是否允许时间倒流？'"
+      :body="'当前轴线已紊乱。留下，或回到尚未愈合之处。'"
+      :hint="harassHint"
+      :primary-text="'回到过去'"
+      :secondary-text="'暂留此处'"
+      :position="dialogPos"
+      @primary="acceptPast"
+      @secondary="refusePast"
+    />
+
+    <ShatterOverlay
+      :visible="phase === 'shatterToPast'"
       mode="past"
-      eyebrow="TIME REVERSING"
-      title="时间正在倒流。"
-      subtitle="请允许我们，短暂离开现在。"
+      eyebrow="REWINDING · DO NOT HOLD ON"
+      title="轴线断裂。"
+      subtitle="请别眨眼——记忆正穿过你。"
     />
 
-    <TimeShift
-      :visible="phase === 'to-present'"
-      mode="present"
-      eyebrow="RETURNING"
-      title="对话结束。过去已经听见。"
-      subtitle="现在，请回望此处。"
+    <PastPlayer v-if="phase === 'playPast'" @all-done="onPastDone" />
+
+    <ShatterOverlay
+      :visible="phase === 'signalBreak'"
+      mode="break"
+      eyebrow="LINK LOST · COLLAPSE IMMINENT"
+      title="信号正在溃散。"
+      subtitle="此次穿梭将被提前终止。"
     />
 
-    <main v-show="journeyStarted" class="home__main">
-      <header class="home__hero">
-        <div class="home__hero-bg" :style="{ backgroundImage: `url(${heroBg})` }" />
-        <div class="home__hero-veil" />
-        <div class="home__hero-copy">
-          <p class="home__eyebrow">DIALOGUE WITH THE PAST</p>
-          <h1 class="home__brand">回到过去</h1>
-          <p class="home__lead">向下行走。每一帧，都是通往那时的钥匙。</p>
-        </div>
-        <div class="home__mouse" aria-hidden="true">
-          <span />
-        </div>
-      </header>
+    <SignalDisconnect v-if="phase === 'askStay'" />
 
-      <StoryScroll />
-      <PhotoBloom @bloom="onBloom" @returning="onReturning" @finale="onFinale" />
-    </main>
+    <DisorderDialog
+      v-if="phase === 'askStay'"
+      :visible="dialogVisible"
+      mode="stay"
+      :eyebrow="'FINAL QUERY'"
+      :title="'是否选择停留在过去？'"
+      :body="'你可以回答。但答案，已不再重要。'"
+      :hint="stayHint"
+      :primary-text="'停留在过去'"
+      :secondary-text="'返回现在'"
+      :fake-anchoring="fakeAnchoring"
+      :position="dialogPos"
+      @primary="chooseStay"
+      @secondary="chooseReturn"
+    />
 
-    <MusicControl v-if="journeyStarted" :playing="playing" @toggle="toggleMusic" />
+    <ShatterOverlay
+      :visible="phase === 'collapseForce' && showCollapseShatter"
+      mode="collapse"
+      eyebrow="FORCED RETURN · NOW"
+      title="时空坍塌。"
+      subtitle="时间收回许可。"
+    />
+
+    <ForceReturn v-if="phase === 'collapseForce' && !showCollapseShatter" />
+
+    <SealedFinale v-if="phase === 'sealedNow'" />
+
+    <MusicControl v-if="musicReady" :playing="playing" @toggle="toggleMusic" />
     <audio ref="audio" :src="musicSrc" loop preload="auto" />
   </div>
 </template>
 
 <script>
-import IntroGate from '@/components/IntroGate.vue'
-import TimeShift from '@/components/TimeShift.vue'
-import StoryScroll from '@/components/StoryScroll.vue'
-import PhotoBloom from '@/components/PhotoBloom.vue'
+import ChaosFlash from '@/components/ChaosFlash.vue'
+import DisorderDialog from '@/components/DisorderDialog.vue'
+import ShatterOverlay from '@/components/ShatterOverlay.vue'
+import PastPlayer from '@/components/PastPlayer.vue'
+import SignalDisconnect from '@/components/SignalDisconnect.vue'
+import ForceReturn from '@/components/ForceReturn.vue'
+import SealedFinale from '@/components/SealedFinale.vue'
 import MusicControl from '@/components/MusicControl.vue'
-import { getPhoto } from '@/utils/photos'
-import musicSrc from '@/assets/music/audio.mp3'
+import musicSrc from '@/assets/music/bgm.mp3'
+
+const HARASS_HINTS = [
+  '拒绝并不能稳住时空。',
+  '过去仍在叩门。',
+  '紊乱不会自行平息。',
+  '你越迟疑，裂隙越深。'
+]
 
 export default {
   name: 'Home',
   components: {
-    IntroGate,
-    TimeShift,
-    StoryScroll,
-    PhotoBloom,
+    ChaosFlash,
+    DisorderDialog,
+    ShatterOverlay,
+    PastPlayer,
+    SignalDisconnect,
+    ForceReturn,
+    SealedFinale,
     MusicControl
   },
   data() {
     return {
-      phase: 'gate', // gate | to-past | journey | to-present | brand
-      journeyStarted: false,
-      playing: false,
+      phase: 'chaosFlash',
+      // chaosFlash | askPast | shatterToPast | playPast | signalBreak | askStay | collapseForce | sealedNow
+      dialogVisible: false,
+      dialogPos: { x: 50, y: 46 },
+      harassHint: '',
+      stayHint: '',
+      fakeAnchoring: false,
+      showCollapseShatter: true,
       musicSrc,
-      heroBg: getPhoto(12),
-      shiftTimer: null
+      playing: false,
+      musicReady: false,
+      timers: []
     }
   },
+  computed: {
+    showChaos() {
+      return this.phase === 'chaosFlash' || this.phase === 'askPast'
+    }
+  },
+  mounted() {
+    this.queue(() => {
+      this.phase = 'askPast'
+      this.spawnAskDialog()
+    }, 3200)
+  },
   beforeDestroy() {
-    if (this.shiftTimer) clearTimeout(this.shiftTimer)
+    this.clearTimers()
   },
   methods: {
-    handleStart() {
-      this.phase = 'to-past'
+    queue(fn, ms) {
+      const id = window.setTimeout(fn, ms)
+      this.timers.push(id)
+      return id
+    },
+    clearTimers() {
+      this.timers.forEach((id) => clearTimeout(id))
+      this.timers = []
+    },
+    randomPos() {
+      return {
+        x: 22 + Math.random() * 56,
+        y: 24 + Math.random() * 52
+      }
+    },
+    spawnAskDialog() {
+      if (this.phase !== 'askPast') return
+      this.dialogPos = this.randomPos()
+      this.harassHint = HARASS_HINTS[Math.floor(Math.random() * HARASS_HINTS.length)]
+      this.dialogVisible = true
+      // 不点「回到过去」也会换位再问
+      this.queue(() => {
+        if (this.phase !== 'askPast') return
+        this.dialogVisible = false
+        this.queue(() => this.spawnAskDialog(), 380 + Math.random() * 420)
+      }, 2200 + Math.random() * 1600)
+    },
+    refusePast() {
+      this.clearTimers()
+      this.dialogVisible = false
+      this.queue(() => {
+        if (this.phase === 'askPast') this.spawnAskDialog()
+      }, 500 + Math.random() * 700)
+    },
+    acceptPast() {
+      this.clearTimers()
+      this.dialogVisible = false
+      this.phase = 'shatterToPast'
+      this.musicReady = true
       this.playMusic()
-      this.shiftTimer = window.setTimeout(() => {
-        this.journeyStarted = true
-        this.phase = 'journey'
-        this.$nextTick(() => {
-          window.scrollTo({ top: 0, behavior: 'auto' })
-        })
-      }, 3200)
+      this.queue(() => {
+        this.phase = 'playPast'
+      }, 3000)
+    },
+    onPastDone() {
+      this.phase = 'signalBreak'
+      this.queue(() => {
+        this.phase = 'askStay'
+        this.stayHint = ''
+        this.fakeAnchoring = false
+        this.dialogPos = { x: 50, y: 48 }
+        this.dialogVisible = true
+      }, 2400)
+    },
+    chooseStay() {
+      this.clearTimers()
+      this.fakeAnchoring = true
+      this.stayHint = '正在尝试锚定……'
+      this.queue(() => {
+        this.beginCollapse()
+      }, 1400)
+    },
+    chooseReturn() {
+      this.clearTimers()
+      this.stayHint = '时间收回许可。'
+      this.queue(() => {
+        this.beginCollapse()
+      }, 700)
+    },
+    beginCollapse() {
+      this.clearTimers()
+      this.dialogVisible = false
+      this.fakeAnchoring = false
+      this.stayHint = ''
+      this.phase = 'collapseForce'
+      this.showCollapseShatter = true
+      this.queue(() => {
+        this.showCollapseShatter = false
+      }, 1600)
+      this.queue(() => {
+        this.phase = 'sealedNow'
+      }, 5200)
     },
     playMusic() {
       const audio = this.$refs.audio
@@ -111,26 +241,6 @@ export default {
         audio.pause()
         this.playing = false
       }
-    },
-    onBloom() {
-      const audio = this.$refs.audio
-      if (!audio) return
-      try {
-        audio.currentTime = 0
-      } catch (e) {
-        /* ignore */
-      }
-      this.playMusic()
-    },
-    onReturning() {
-      this.phase = 'to-present'
-      if (this.shiftTimer) clearTimeout(this.shiftTimer)
-      this.shiftTimer = window.setTimeout(() => {
-        this.phase = 'brand'
-      }, 3800)
-    },
-    onFinale() {
-      this.phase = 'brand'
     }
   }
 }
@@ -139,136 +249,8 @@ export default {
 <style lang="scss" scoped>
 .home {
   min-height: 100vh;
-  background: var(--bg-deep);
-
-  &__main {
-    animation: mainIn 1.1s ease both;
-  }
-
-  &__hero {
-    position: relative;
-    height: 100vh;
-    min-height: 640px;
-    overflow: hidden;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  &__hero-bg {
-    position: absolute;
-    inset: -8%;
-    background-size: cover;
-    background-position: center;
-    filter: brightness(0.48) saturate(0.68) contrast(1.12) hue-rotate(-8deg);
-    animation: heroDrift 20s ease-in-out infinite alternate;
-  }
-
-  &__hero-veil {
-    position: absolute;
-    inset: 0;
-    background:
-      radial-gradient(ellipse 65% 55% at 50% 40%, transparent 0%, rgba(5, 7, 12, 0.55) 65%, rgba(5, 7, 12, 0.94) 100%),
-      linear-gradient(180deg, rgba(122, 16, 40, 0.2), rgba(5, 7, 12, 0.55));
-  }
-
-  &__hero-copy {
-    position: relative;
-    z-index: 2;
-    text-align: center;
-    padding: 0 24px;
-    animation: rise 1.1s cubic-bezier(0.22, 1, 0.36, 1) 0.15s both;
-  }
-
-  &__eyebrow {
-    margin: 0 0 16px;
-    font-family: var(--font-display);
-    font-size: 13px;
-    letter-spacing: 0.42em;
-    color: var(--accent-metal);
-  }
-
-  &__brand {
-    margin: 0;
-    font-family: var(--font-display);
-    font-weight: 600;
-    font-size: clamp(48px, 11vw, 96px);
-    letter-spacing: 0.14em;
-    text-indent: 0.14em;
-    line-height: 1;
-    text-shadow: 0 0 48px rgba(176, 30, 58, 0.28);
-  }
-
-  &__lead {
-    margin: 22px 0 0;
-    font-weight: 300;
-    font-size: 15px;
-    letter-spacing: 0.2em;
-    color: var(--text-muted);
-  }
-
-  &__mouse {
-    position: absolute;
-    left: 50%;
-    bottom: 36px;
-    transform: translateX(-50%);
-    width: 22px;
-    height: 34px;
-    border: 1px solid var(--metal-line);
-    border-radius: 12px;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
-
-    span {
-      position: absolute;
-      left: 50%;
-      top: 8px;
-      width: 3px;
-      height: 7px;
-      margin-left: -1.5px;
-      border-radius: 2px;
-      background: var(--accent-metal);
-      animation: mouseDrop 1.8s ease-in-out infinite;
-    }
-  }
-}
-
-@keyframes mainIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@keyframes rise {
-  from {
-    opacity: 0;
-    transform: translateY(24px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes heroDrift {
-  from {
-    transform: scale(1.05) translate3d(-1%, 0, 0);
-  }
-  to {
-    transform: scale(1.12) translate3d(1.2%, 1%, 0);
-  }
-}
-
-@keyframes mouseDrop {
-  0% {
-    opacity: 1;
-    transform: translateY(0);
-  }
-  100% {
-    opacity: 0;
-    transform: translateY(12px);
-  }
+  background: #05070c;
+  color: var(--text-primary);
+  overflow: hidden;
 }
 </style>
