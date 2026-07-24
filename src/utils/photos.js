@@ -6,6 +6,17 @@ function sortKey(path) {
   return Number(match[1]) * 10 + (match[2].toLowerCase().charCodeAt(0) - 97)
 }
 
+function shuffle(list) {
+  const arr = list.slice()
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    const tmp = arr[i]
+    arr[i] = arr[j]
+    arr[j] = tmp
+  }
+  return arr
+}
+
 export const photoList = modules
   .keys()
   .sort((a, b) => sortKey(a) - sortKey(b))
@@ -20,19 +31,18 @@ export const photoList = modules
     }
   })
 
-export function photosEarly() {
-  return photoList.filter((p) => p.clip >= 1 && p.clip <= 4)
-}
+// 回声 / 坍塌各用一半，互不重复
+const split = shuffle(photoList.map((p) => p.src))
+const mid = Math.ceil(split.length / 2)
+export const echoPhotos = split.slice(0, mid)
+export const collapsePhotos = split.slice(mid)
 
-export function photosMid() {
-  return photoList.filter((p) => p.clip >= 5 && p.clip <= 9)
-}
-
-export function photosLate() {
-  return photoList.filter((p) => p.clip >= 10 && p.clip <= 13)
-}
-
-export function pick(list) {
-  if (!list || !list.length) return photoList[0] && photoList[0].src
-  return list[Math.floor(Math.random() * list.length)].src
+/** 池内不放回抽取，用尽后重新洗牌（仍不碰另一段的图） */
+export function createPicker(pool) {
+  const source = pool && pool.length ? pool.slice() : photoList.map((p) => p.src)
+  let bag = shuffle(source)
+  return function pickNext() {
+    if (!bag.length) bag = shuffle(source)
+    return bag.pop()
+  }
 }

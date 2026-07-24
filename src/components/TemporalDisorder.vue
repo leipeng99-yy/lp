@@ -53,7 +53,7 @@
 
 <script>
 import { videoList } from '@/utils/videos'
-import { photosEarly, photosLate, photosMid, pick } from '@/utils/photos'
+import { echoPhotos, createPicker } from '@/utils/photos'
 import { isMobileDevice } from '@/utils/device'
 
 export default {
@@ -77,6 +77,7 @@ export default {
       focus: 0,
       photoSlots: ['', ''],
       photoFocus: 1,
+      pickEcho: null,
       isLite: isMobileDevice()
     }
   },
@@ -91,7 +92,8 @@ export default {
   },
   mounted() {
     if (this.mode === 'close') {
-      this.photoSlots = [pick(photosEarly()), pick(photosLate())]
+      this.pickEcho = createPicker(echoPhotos)
+      this.photoSlots = [this.pickEcho(), this.pickEcho()]
       this.photoFocus = 1
     } else {
       const list = videoList.map((v) => v.src)
@@ -184,13 +186,14 @@ export default {
       }
     },
     async echoPhotoBurst() {
-      // 柔和溶镜：短暗 → 起点 → 淡暗 → 尽头（偶发中段）
+      // 柔和溶镜：仅用 echoPhotos 池，与坍塌不重复
+      const next = this.pickEcho || createPicker(echoPhotos)
       if (!this.running) return
       this.blackout = 0.55
       await this.wait(90 + Math.random() * 50)
       if (!this.running) return
 
-      this.$set(this.photoSlots, 0, pick(photosEarly()))
+      this.$set(this.photoSlots, 0, next())
       this.photoFocus = 0
       this.blackout = 0.06
       await this.wait(240 + Math.random() * 140)
@@ -200,7 +203,7 @@ export default {
       await this.wait(100)
       if (!this.running) return
 
-      this.$set(this.photoSlots, 1, pick(photosLate()))
+      this.$set(this.photoSlots, 1, next())
       this.photoFocus = 1
       this.blackout = 0.05
       await this.wait(280 + Math.random() * 160)
@@ -210,14 +213,14 @@ export default {
         this.blackout = 0.35
         await this.wait(80)
         if (!this.running) return
-        this.$set(this.photoSlots, 0, pick(photosMid()))
+        this.$set(this.photoSlots, 0, next())
         this.photoFocus = 0
         this.blackout = 0.08
         await this.wait(200 + Math.random() * 100)
         if (!this.running) return
         this.blackout = 0.3
         await this.wait(70)
-        this.$set(this.photoSlots, 1, pick(photosLate()))
+        this.$set(this.photoSlots, 1, next())
         this.photoFocus = 1
         this.blackout = 0.05
         await this.wait(180)

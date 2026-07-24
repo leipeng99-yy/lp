@@ -1,6 +1,6 @@
 <template>
   <section class="force-return" :class="{ 'is-exit': exiting }">
-    <!-- 时空坍塌：照片硬切狂闪 + 向心挤压（与回声软溶区分） -->
+    <!-- 时空坍塌：仅用 collapsePhotos，与回声池互不重复 -->
     <div class="force-return__stack" :style="{ transform: 'scale(' + crushScale + ')' }">
       <img class="force-return__photo is-base" :src="baseSrc" alt="" />
       <img
@@ -23,7 +23,7 @@
 </template>
 
 <script>
-import { photoList, photosEarly, photosLate, photosMid, pick } from '@/utils/photos'
+import { collapsePhotos, createPicker } from '@/utils/photos'
 
 export default {
   name: 'ForceReturn',
@@ -36,12 +36,14 @@ export default {
       crushScale: 1,
       sequenceTimer: null,
       running: false,
-      exiting: false
+      exiting: false,
+      pickCollapse: null
     }
   },
   mounted() {
-    this.baseSrc = pick(photosLate()) || (photoList[0] && photoList[0].src)
-    this.flashSrc = pick(photosEarly()) || this.baseSrc
+    this.pickCollapse = createPicker(collapsePhotos)
+    this.baseSrc = this.pickCollapse()
+    this.flashSrc = this.pickCollapse()
     this.running = true
     this.runCollapse()
   },
@@ -53,6 +55,9 @@ export default {
       return new Promise((resolve) => {
         this.sequenceTimer = window.setTimeout(resolve, ms)
       })
+    },
+    nextPhoto() {
+      return (this.pickCollapse || createPicker(collapsePhotos))()
     },
     async hardCut(src, hold, blackMs) {
       if (!this.running) return
@@ -67,38 +72,32 @@ export default {
       this.flashOn = false
     },
     async runCollapse() {
-      const early = photosEarly()
-      const mid = photosMid()
-      const late = photosLate()
-      const all = photoList.length ? photoList : []
-
       for (let i = 0; i < 10 && this.running; i++) {
-        const src = pick(all.length ? all : late)
         this.crushScale = 1 + i * 0.012
-        await this.hardCut(src, 70 + Math.random() * 55, 28 + Math.random() * 25)
+        await this.hardCut(this.nextPhoto(), 70 + Math.random() * 55, 28 + Math.random() * 25)
       }
 
       for (let i = 0; i < 6 && this.running; i++) {
         this.crushScale = 1.12 + i * 0.02
-        await this.hardCut(pick(early), 90 + Math.random() * 40, 40)
+        await this.hardCut(this.nextPhoto(), 90 + Math.random() * 40, 40)
         if (!this.running) return
-        await this.hardCut(pick(late), 100 + Math.random() * 50, 40)
+        await this.hardCut(this.nextPhoto(), 100 + Math.random() * 50, 40)
       }
 
       if (this.running) {
         this.crushScale = 1.28
-        await this.hardCut(pick(mid), 120, 50)
-        await this.hardCut(pick(early), 80, 35)
-        await this.hardCut(pick(late), 140, 45)
+        await this.hardCut(this.nextPhoto(), 120, 50)
+        await this.hardCut(this.nextPhoto(), 80, 35)
+        await this.hardCut(this.nextPhoto(), 140, 45)
       }
 
       if (!this.running) return
       this.exiting = true
       this.crushScale = 1.38
-      await this.hardCut(pick(late), 280, 60)
+      await this.hardCut(this.nextPhoto(), 280, 60)
       if (!this.running) return
       this.crushScale = 1.48
-      await this.hardCut(pick(late), 320, 50)
+      await this.hardCut(this.nextPhoto(), 320, 50)
       this.flash = 0.35
       await this.wait(200)
       this.flash = 0.7
