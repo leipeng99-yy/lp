@@ -5,10 +5,10 @@
       <span v-for="n in 8" :key="n" />
     </div>
     <div class="signal__copy">
-      <p class="signal__eyebrow">LINK LOST · COLLAPSE IMMINENT</p>
-      <h2 class="signal__title">信号正在溃散。</h2>
-      <p class="signal__body">此次穿梭将被提前终止。<br />过去无法被永久占用。</p>
-      <p class="signal__nosignal">NO SIGNAL</p>
+      <p class="signal__eyebrow">ECHO · THINNING</p>
+      <h2 class="signal__title">回声正在散尽。</h2>
+      <p class="signal__body">穿梭将在此停住。<br />过去不被允许久留。</p>
+      <p class="signal__nosignal">SIGNAL LOST</p>
     </div>
   </section>
 </template>

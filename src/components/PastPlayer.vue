@@ -1,43 +1,52 @@
 <template>
-  <section class="past-player" :class="{ 'is-muted-fx': disorderHint }">
-    <video
-      ref="video"
-      class="past-player__video"
-      :src="currentSrc"
-      playsinline
-      preload="auto"
-      @ended="onEnded"
-      @timeupdate="onTime"
-      @loadedmetadata="onMeta"
-    />
+  <section class="past-player">
+    <div class="past-player__stage">
+      <video
+        ref="v0"
+        class="past-player__video"
+        :class="{ 'is-active': activeSlot === 0 }"
+        muted
+        playsinline
+        preload="auto"
+        @ended="onEnded"
+        @timeupdate="onTime"
+      />
+      <video
+        ref="v1"
+        class="past-player__video"
+        :class="{ 'is-active': activeSlot === 1 }"
+        muted
+        playsinline
+        preload="auto"
+        @ended="onEnded"
+        @timeupdate="onTime"
+      />
+    </div>
 
     <div class="past-player__veil" />
-    <div class="past-player__scan" aria-hidden="true" />
+    <div class="past-player__grain" aria-hidden="true" />
 
     <div class="past-player__hud">
-      <p class="past-player__eyebrow">ARCHIVE · PAST ONLY</p>
-      <p class="past-player__status">可拖动进度 · 快进回望</p>
+      <p class="past-player__eyebrow">ARCHIVE · ALONG THE TIMELINE</p>
+      <p class="past-player__status">沿时间线回望 · 可拖动总进度</p>
 
       <div class="past-player__seek">
         <input
           class="past-player__range"
           type="range"
           min="0"
-          :max="duration || 1"
+          :max="totalDuration || 1"
           step="0.05"
-          :value="currentTime"
+          :value="timelinePos"
+          :disabled="!ready"
           @input="onSeek"
         />
       </div>
 
       <div class="past-player__meta">
-        <span>{{ formatTime(currentTime) }}</span>
+        <span>{{ formatTime(timelinePos) }}</span>
         <span>{{ String(index + 1).padStart(2, '0') }} / {{ String(total).padStart(2, '0') }}</span>
-        <span>{{ formatTime(duration) }}</span>
-      </div>
-
-      <div class="past-player__overall">
-        <span :style="{ width: overallWidth }" />
+        <span>{{ formatTime(totalDuration) }}</span>
       </div>
     </div>
   </section>
@@ -46,33 +55,53 @@
 <script>
 import { videoList } from '@/utils/videos'
 
+const CROSSFADE_MS = 320
+
 export default {
   name: 'PastPlayer',
   data() {
     return {
       index: 0,
-      currentTime: 0,
-      duration: 1,
-      nearEndEmitted: false,
-      disorderHint: false
+      activeSlot: 0,
+      slotIndex: [-1, -1],
+      durations: [],
+      ready: false,
+      timelinePos: 0,
+      crossing: false,
+      nextArmed: false,
+      probing: false
     }
   },
   computed: {
     total() {
       return videoList.length
     },
-    currentSrc() {
-      return videoList[this.index] ? videoList[this.index].src : ''
+    totalDuration() {
+      return this.durations.reduce((s, d) => s + (d || 0), 0)
     },
-    overallWidth() {
-      if (!this.total) return '0%'
-      const base = this.index / this.total
-      const piece = (this.duration ? this.currentTime / this.duration : 0) / this.total
-      return `${Math.min(100, (base + piece) * 100)}%`
+    offsets() {
+      const list = []
+      let acc = 0
+      for (let i = 0; i < this.durations.length; i++) {
+        list.push(acc)
+        acc += this.durations[i] || 0
+      }
+      return list
     }
   },
   mounted() {
-    this.$nextTick(() => this.playCurrent())
+    this.probeDurations().then(() => {
+      this.ready = true
+      this.$emit('track-change', 0)
+      this.loadInto(this.activeSlot, 0, true).then(() => {
+        this.playSlot(this.activeSlot)
+        this.armNext()
+      })
+    })
+  },
+  beforeDestroy() {
+    this.getSlot(0) && this.getSlot(0).pause()
+    this.getSlot(1) && this.getSlot(1).pause()
   },
   methods: {
     formatTime(sec) {
@@ -81,77 +110,161 @@ export default {
       const r = s % 60
       return `${m}:${String(r).padStart(2, '0')}`
     },
-    playCurrent() {
-      const video = this.$refs.video
-      if (!video || !this.currentSrc) {
+    getSlot(slot) {
+      return slot === 0 ? this.$refs.v0 : this.$refs.v1
+    },
+    otherSlot(slot) {
+      return slot === 0 ? 1 : 0
+    },
+    probeDurations() {
+      this.probing = true
+      const tasks = videoList.map(
+        (item) =>
+          new Promise((resolve) => {
+            const el = document.createElement('video')
+            el.preload = 'metadata'
+            el.muted = true
+            el.src = item.src
+            const done = (d) => {
+              el.removeAttribute('src')
+              el.load()
+              resolve(d && !Number.isNaN(d) ? d : 6)
+            }
+            el.addEventListener('loadedmetadata', () => done(el.duration), { once: true })
+            el.addEventListener('error', () => done(6), { once: true })
+            window.setTimeout(() => done(6), 8000)
+          })
+      )
+      return Promise.all(tasks).then((durs) => {
+        this.durations = durs
+        this.probing = false
+      })
+    },
+    loadInto(slot, index, fromStart) {
+      const video = this.getSlot(slot)
+      const item = videoList[index]
+      if (!video || !item) return Promise.resolve()
+      return new Promise((resolve) => {
+        const onReady = () => {
+          try {
+            if (fromStart) video.currentTime = 0
+            video.playbackRate = 1
+          } catch (e) {
+            /* ignore */
+          }
+          this.$set(this.slotIndex, slot, index)
+          resolve()
+        }
+        if (this.slotIndex[slot] === index && video.src) {
+          onReady()
+          return
+        }
+        video.src = item.src
+        if (video.readyState >= 1) onReady()
+        else video.addEventListener('loadedmetadata', onReady, { once: true })
+      })
+    },
+    playSlot(slot) {
+      const video = this.getSlot(slot)
+      if (!video) return
+      const p = video.play()
+      if (p && p.catch) p.catch(() => {})
+    },
+    armNext() {
+      if (this.index >= this.total - 1) {
+        this.nextArmed = false
+        return
+      }
+      const next = this.index + 1
+      const slot = this.otherSlot(this.activeSlot)
+      this.loadInto(slot, next, true).then(() => {
+        this.nextArmed = true
+      })
+    },
+    onTime() {
+      if (this.crossing) return
+      const video = this.getSlot(this.activeSlot)
+      if (!video || !video.duration) return
+      const offset = this.offsets[this.index] || 0
+      this.timelinePos = offset + video.currentTime
+    },
+    onEnded(e) {
+      const active = this.getSlot(this.activeSlot)
+      if (e && e.target !== active) return
+      if (this.crossing) return
+
+      if (this.index >= this.total - 1) {
+        this.timelinePos = this.totalDuration
         this.$emit('all-done')
         return
       }
-      this.currentTime = 0
-      this.nearEndEmitted = false
-      this.disorderHint = false
-      try {
-        video.playbackRate = 1
-        video.currentTime = 0
-      } catch (e) {
-        /* ignore */
-      }
-      const playPromise = video.play()
-      if (playPromise && playPromise.then) {
-        playPromise.catch(() => {})
-      }
+      this.crossTo(this.index + 1)
     },
-    onMeta() {
-      const video = this.$refs.video
-      this.duration = video && video.duration ? video.duration : 1
-    },
-    onTime() {
-      const video = this.$refs.video
-      if (!video || !video.duration) return
-      this.currentTime = video.currentTime
-      this.duration = video.duration
+    crossTo(nextIndex, seekInClip) {
+      if (nextIndex < 0 || nextIndex >= this.total) return
+      if (this.crossing) return
+      this.crossing = true
 
-      // 快播完所有回忆：进入最后一段且过半 → 触发收束紊乱
-      if (
-        !this.nearEndEmitted &&
-        this.index >= this.total - 1 &&
-        video.currentTime / video.duration >= 0.48
-      ) {
-        this.nearEndEmitted = true
-        this.disorderHint = true
+      const fromSlot = this.activeSlot
+      const toSlot = this.otherSlot(fromSlot)
+      const fromVideo = this.getSlot(fromSlot)
+      const toVideo = this.getSlot(toSlot)
+
+      const finish = () => {
+        this.index = nextIndex
+        this.activeSlot = toSlot
+        this.crossing = false
+        this.nextArmed = false
+        this.$emit('track-change', nextIndex)
+        if (fromVideo) {
+          try {
+            fromVideo.pause()
+          } catch (e) {
+            /* ignore */
+          }
+        }
+        this.armNext()
+      }
+
+      this.loadInto(toSlot, nextIndex, seekInClip == null).then(() => {
         try {
-          video.pause()
+          toVideo.currentTime = seekInClip == null ? 0 : seekInClip
         } catch (e) {
           /* ignore */
         }
-        this.$emit('near-complete')
-      }
+        this.playSlot(toSlot)
+        window.setTimeout(finish, CROSSFADE_MS)
+      })
     },
     onSeek(e) {
-      const video = this.$refs.video
-      if (!video) return
-      const next = Number(e.target.value)
-      try {
-        video.currentTime = next
-        this.currentTime = next
-        if (video.paused) {
-          const p = video.play()
-          if (p && p.catch) p.catch(() => {})
+      if (!this.ready || !this.totalDuration) return
+      const t = Math.max(0, Math.min(this.totalDuration - 0.05, Number(e.target.value)))
+      this.timelinePos = t
+
+      let targetIndex = 0
+      let local = t
+      for (let i = 0; i < this.durations.length; i++) {
+        const start = this.offsets[i] || 0
+        const end = start + (this.durations[i] || 0)
+        if (t >= start && (t < end || i === this.durations.length - 1)) {
+          targetIndex = i
+          local = Math.min(Math.max(0, t - start), Math.max(0, (this.durations[i] || 0) - 0.05))
+          break
         }
-      } catch (err) {
-        /* ignore */
       }
-    },
-    onEnded() {
-      if (this.index >= this.total - 1) {
-        if (!this.nearEndEmitted) {
-          this.nearEndEmitted = true
-          this.$emit('near-complete')
+
+      if (targetIndex === this.index && !this.crossing) {
+        const video = this.getSlot(this.activeSlot)
+        try {
+          video.currentTime = local
+          if (video.paused) this.playSlot(this.activeSlot)
+        } catch (err) {
+          /* ignore */
         }
         return
       }
-      this.index += 1
-      this.$nextTick(() => this.playCurrent())
+
+      this.crossTo(targetIndex, local)
     }
   }
 }
@@ -165,8 +278,9 @@ export default {
   background: #05070c;
   overflow: hidden;
 
-  &.is-muted-fx .past-player__video {
-    filter: saturate(0.5) contrast(1.2) brightness(0.7);
+  &__stage {
+    position: absolute;
+    inset: 0;
   }
 
   &__video {
@@ -175,30 +289,34 @@ export default {
     width: 100%;
     height: 100%;
     object-fit: cover;
-    filter: saturate(0.82) contrast(1.08) brightness(0.92);
+    opacity: 0;
+    transition: opacity 0.32s ease;
+    filter: saturate(0.88) contrast(1.06) brightness(0.94);
+    pointer-events: none;
+
+    &.is-active {
+      opacity: 1;
+      z-index: 1;
+    }
   }
 
   &__veil {
     position: absolute;
     inset: 0;
+    z-index: 2;
     pointer-events: none;
     background:
-      radial-gradient(ellipse 70% 55% at 50% 45%, transparent 0%, rgba(5, 7, 12, 0.35) 70%, rgba(5, 7, 12, 0.78) 100%),
-      linear-gradient(180deg, rgba(5, 7, 12, 0.35), transparent 30%, rgba(5, 7, 12, 0.55));
+      radial-gradient(ellipse 70% 55% at 50% 42%, transparent 0%, rgba(5, 7, 12, 0.28) 72%, rgba(5, 7, 12, 0.72) 100%),
+      linear-gradient(180deg, rgba(5, 7, 12, 0.28), transparent 28%, rgba(5, 7, 12, 0.5));
   }
 
-  &__scan {
+  &__grain {
     position: absolute;
     inset: 0;
+    z-index: 2;
     pointer-events: none;
-    opacity: 0.16;
-    background: repeating-linear-gradient(
-      0deg,
-      rgba(0, 0, 0, 0.25) 0,
-      rgba(0, 0, 0, 0.25) 1px,
-      transparent 1px,
-      transparent 4px
-    );
+    opacity: 0.05;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   }
 
   &__hud {
@@ -206,8 +324,8 @@ export default {
     left: 0;
     right: 0;
     bottom: 0;
-    z-index: 2;
-    padding: 24px 28px 32px;
+    z-index: 3;
+    padding: 24px 28px 34px;
     text-align: center;
   }
 
@@ -224,13 +342,13 @@ export default {
     margin: 10px 0 0;
     font-weight: 300;
     font-size: 12px;
-    letter-spacing: 0.28em;
-    color: rgba(200, 212, 228, 0.45);
+    letter-spacing: 0.26em;
+    color: rgba(200, 212, 228, 0.42);
   }
 
   &__seek {
-    margin: 18px auto 0;
-    width: min(420px, 78vw);
+    margin: 20px auto 0;
+    width: min(460px, 82vw);
   }
 
   &__range {
@@ -238,29 +356,28 @@ export default {
     appearance: none;
     width: 100%;
     height: 2px;
-    border-radius: 0;
-    background: rgba(200, 208, 220, 0.22);
+    background: rgba(200, 208, 220, 0.2);
     outline: none;
     cursor: pointer;
 
     &::-webkit-slider-thumb {
       -webkit-appearance: none;
       appearance: none;
-      width: 12px;
-      height: 12px;
+      width: 11px;
+      height: 11px;
       border-radius: 0;
       background: #e8eef5;
-      border: 1px solid rgba(176, 30, 58, 0.55);
-      box-shadow: 0 0 10px rgba(176, 30, 58, 0.35);
+      border: 1px solid rgba(176, 30, 58, 0.5);
+      box-shadow: 0 0 12px rgba(176, 30, 58, 0.28);
       cursor: pointer;
     }
 
     &::-moz-range-thumb {
-      width: 12px;
-      height: 12px;
+      width: 11px;
+      height: 11px;
       border-radius: 0;
       background: #e8eef5;
-      border: 1px solid rgba(176, 30, 58, 0.55);
+      border: 1px solid rgba(176, 30, 58, 0.5);
       cursor: pointer;
     }
   }
@@ -268,26 +385,12 @@ export default {
   &__meta {
     display: flex;
     justify-content: space-between;
-    width: min(420px, 78vw);
-    margin: 10px auto 0;
+    width: min(460px, 82vw);
+    margin: 12px auto 0;
     font-family: var(--font-display);
     font-size: 11px;
     letter-spacing: 0.18em;
-    color: rgba(200, 212, 228, 0.4);
-  }
-
-  &__overall {
-    margin: 14px auto 0;
-    width: min(280px, 55vw);
-    height: 1px;
-    background: rgba(200, 208, 220, 0.14);
-    overflow: hidden;
-
-    span {
-      display: block;
-      height: 100%;
-      background: linear-gradient(90deg, rgba(176, 30, 58, 0.35), rgba(200, 208, 220, 0.85));
-    }
+    color: rgba(200, 212, 228, 0.38);
   }
 }
 </style>

@@ -5,7 +5,7 @@
     <div class="sealed__copy">
       <p class="sealed__eyebrow">THE ONLY EXIT</p>
       <h1 class="sealed__brand">交给时间。</h1>
-      <p class="sealed__lead">穿梭已止。过去被封存，现在重新成立。</p>
+      <p class="sealed__lead">穿梭已止。其余，交给它慢慢安放。</p>
       <p class="sealed__close">再也无法回到过去——也无需再去。</p>
       <p class="sealed__en">leave it to time.</p>
     </div>
