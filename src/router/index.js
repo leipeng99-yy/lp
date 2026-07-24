@@ -13,7 +13,7 @@ export const routes = [
     name: 'Home',
     component: () => import('@/views/home/index.vue'),
     meta: {
-      title: '全球热恋'
+      title: '雷朋 · 全球热恋'
     }
   }
 ]

@@ -37,33 +37,33 @@ export default {
       observer: null,
       chapters: [
         {
-          id: 'meet',
-          title: '初见',
-          text: '世界很大，偏偏遇见了你。',
+          id: 'then',
+          title: '那时',
+          text: '世界尚未命名我们，目光却先相遇。',
           image: getPhoto(3)
         },
         {
-          id: 'spark',
-          title: '心动',
-          text: '一瞬间，所有风景都有了名字。',
+          id: 'unsaid',
+          title: '未言',
+          text: '有些话停在唇边，却已抵达心里。',
           image: getPhoto(18)
         },
         {
-          id: 'walk',
-          title: '同行',
-          text: '平凡的日子，因为你而滚烫。',
+          id: 'side',
+          title: '并肩',
+          text: '平凡被照亮的那些日子，后来成了永恒。',
           image: getPhoto(42)
         },
         {
-          id: 'vow',
-          title: '约定',
-          text: '把余生交给彼此，把热爱交给时间。',
+          id: 'echo',
+          title: '回声',
+          text: '分开之后，爱仍以回声的方式活着。',
           image: getPhoto(58)
         },
         {
-          id: 'glow',
-          title: '炽热',
-          text: '这一场爱，足够照亮整座城市。',
+          id: 'choose',
+          title: '仍选',
+          text: '若能重来——我仍会走向你。',
           image: getPhoto(76)
         }
       ]

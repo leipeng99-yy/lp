@@ -6,14 +6,14 @@
       <div class="intro-gate__grain" />
 
       <div class="intro-gate__content">
-        <p class="intro-gate__eyebrow">A LOVE STORY</p>
+        <p class="intro-gate__eyebrow">RAY-BAN · ACROSS TIME</p>
         <h1 class="intro-gate__brand">全球热恋</h1>
-        <p class="intro-gate__lead">两个人的世界，足够盛大</p>
+        <p class="intro-gate__lead">有些目光，只能隔着时间抵达。</p>
         <button class="intro-gate__cta" type="button" @click="onStart">
           <span class="intro-gate__cta-glow" />
-          <span class="intro-gate__cta-text">开启</span>
+          <span class="intro-gate__cta-text">回到那时</span>
         </button>
-        <p class="intro-gate__hint">点击后将播放音乐</p>
+        <p class="intro-gate__hint">启程后将播放音乐</p>
       </div>
 
       <div class="intro-gate__scroll-hint" aria-hidden="true">
@@ -71,7 +71,7 @@ export default {
   &__veil {
     position: absolute;
     inset: 0;
-      background:
+    background:
       radial-gradient(ellipse 70% 55% at 50% 40%, transparent 0%, rgba(5, 7, 12, 0.4) 55%, rgba(5, 7, 12, 0.94) 100%),
       linear-gradient(180deg, rgba(122, 16, 40, 0.28) 0%, rgba(5, 7, 12, 0.75) 100%);
   }
@@ -125,8 +125,8 @@ export default {
   &__cta {
     position: relative;
     margin-top: 48px;
-    width: 168px;
-    height: 168px;
+    width: 188px;
+    height: 188px;
     border: 1px solid var(--metal-line);
     border-radius: 50%;
     background: transparent;
@@ -158,9 +158,9 @@ export default {
     position: relative;
     z-index: 1;
     font-family: var(--font-display);
-    font-size: 28px;
-    letter-spacing: 0.35em;
-    text-indent: 0.35em;
+    font-size: 24px;
+    letter-spacing: 0.28em;
+    text-indent: 0.28em;
   }
 
   &__hint {

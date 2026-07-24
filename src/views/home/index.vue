@@ -1,15 +1,31 @@
 <template>
-  <div class="home" :class="{ 'is-started': started }">
-    <IntroGate :visible="!started" @start="handleStart" />
+  <div class="home" :class="{ 'is-started': journeyStarted }">
+    <IntroGate :visible="phase === 'gate'" @start="handleStart" />
 
-    <main v-show="started" class="home__main">
+    <TimeShift
+      :visible="phase === 'to-past'"
+      mode="past"
+      eyebrow="TIME REVERSING"
+      title="时间正在倒流。"
+      subtitle="请允许我们，短暂离开现在。"
+    />
+
+    <TimeShift
+      :visible="phase === 'to-present'"
+      mode="present"
+      eyebrow="RETURNING"
+      title="对话结束。过去已经听见。"
+      subtitle="现在，请回望此处。"
+    />
+
+    <main v-show="journeyStarted" class="home__main">
       <header class="home__hero">
         <div class="home__hero-bg" :style="{ backgroundImage: `url(${heroBg})` }" />
         <div class="home__hero-veil" />
         <div class="home__hero-copy">
-          <p class="home__eyebrow">GLOBAL ROMANCE</p>
-          <h1 class="home__brand">全球热恋</h1>
-          <p class="home__lead">向下滑动，走进这场关于我们的电影</p>
+          <p class="home__eyebrow">DIALOGUE WITH THE PAST</p>
+          <h1 class="home__brand">回到过去</h1>
+          <p class="home__lead">向下行走。每一帧，都是通往那时的钥匙。</p>
         </div>
         <div class="home__mouse" aria-hidden="true">
           <span />
@@ -17,16 +33,17 @@
       </header>
 
       <StoryScroll />
-      <PhotoBloom @bloom="onBloom" />
+      <PhotoBloom @bloom="onBloom" @returning="onReturning" @finale="onFinale" />
     </main>
 
-    <MusicControl v-if="started" :playing="playing" @toggle="toggleMusic" />
+    <MusicControl v-if="journeyStarted" :playing="playing" @toggle="toggleMusic" />
     <audio ref="audio" :src="musicSrc" loop preload="auto" />
   </div>
 </template>
 
 <script>
 import IntroGate from '@/components/IntroGate.vue'
+import TimeShift from '@/components/TimeShift.vue'
 import StoryScroll from '@/components/StoryScroll.vue'
 import PhotoBloom from '@/components/PhotoBloom.vue'
 import MusicControl from '@/components/MusicControl.vue'
@@ -37,25 +54,35 @@ export default {
   name: 'Home',
   components: {
     IntroGate,
+    TimeShift,
     StoryScroll,
     PhotoBloom,
     MusicControl
   },
   data() {
     return {
-      started: false,
+      phase: 'gate', // gate | to-past | journey | to-present | brand
+      journeyStarted: false,
       playing: false,
       musicSrc,
-      heroBg: getPhoto(12)
+      heroBg: getPhoto(12),
+      shiftTimer: null
     }
+  },
+  beforeDestroy() {
+    if (this.shiftTimer) clearTimeout(this.shiftTimer)
   },
   methods: {
     handleStart() {
-      this.started = true
-      this.$nextTick(() => {
-        this.playMusic()
-        window.scrollTo({ top: 0, behavior: 'auto' })
-      })
+      this.phase = 'to-past'
+      this.playMusic()
+      this.shiftTimer = window.setTimeout(() => {
+        this.journeyStarted = true
+        this.phase = 'journey'
+        this.$nextTick(() => {
+          window.scrollTo({ top: 0, behavior: 'auto' })
+        })
+      }, 3200)
     },
     playMusic() {
       const audio = this.$refs.audio
@@ -91,9 +118,19 @@ export default {
       try {
         audio.currentTime = 0
       } catch (e) {
-        /* ignore seek errors */
+        /* ignore */
       }
       this.playMusic()
+    },
+    onReturning() {
+      this.phase = 'to-present'
+      if (this.shiftTimer) clearTimeout(this.shiftTimer)
+      this.shiftTimer = window.setTimeout(() => {
+        this.phase = 'brand'
+      }, 3800)
+    },
+    onFinale() {
+      this.phase = 'brand'
     }
   }
 }
@@ -105,7 +142,7 @@ export default {
   background: var(--bg-deep);
 
   &__main {
-    animation: mainIn 1s ease both;
+    animation: mainIn 1.1s ease both;
   }
 
   &__hero {
@@ -123,7 +160,7 @@ export default {
     inset: -8%;
     background-size: cover;
     background-position: center;
-    filter: brightness(0.5) saturate(0.7) contrast(1.1) hue-rotate(-8deg);
+    filter: brightness(0.48) saturate(0.68) contrast(1.12) hue-rotate(-8deg);
     animation: heroDrift 20s ease-in-out infinite alternate;
   }
 
@@ -166,7 +203,7 @@ export default {
     margin: 22px 0 0;
     font-weight: 300;
     font-size: 15px;
-    letter-spacing: 0.24em;
+    letter-spacing: 0.2em;
     color: var(--text-muted);
   }
 
