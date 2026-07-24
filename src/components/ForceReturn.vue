@@ -1,24 +1,19 @@
 <template>
-  <section class="force-return" :class="{ 'is-lite': isLite, 'is-exit': exiting }">
-    <!-- 全屏叠层：首 ↔ 尾闪现闪回（手机/桌面统一；桌面额外一格中段） -->
-    <div class="force-return__stack">
-      <video
-        v-for="(src, i) in sources"
-        :key="'fr-' + i"
-        :ref="'fv' + i"
-        class="force-return__video"
-        :class="'layer-' + i"
-        :src="src"
-        muted
-        playsinline
-        webkit-playsinline
-        preload="metadata"
-        :style="{ opacity: opacities[i] }"
+  <section class="force-return" :class="{ 'is-exit': exiting }">
+    <!-- 时空坍塌：照片硬切狂闪 + 向心挤压（与回声软溶区分） -->
+    <div class="force-return__stack" :style="{ transform: 'scale(' + crushScale + ')' }">
+      <img class="force-return__photo is-base" :src="baseSrc" alt="" />
+      <img
+        class="force-return__photo is-flash"
+        :class="{ 'is-on': flashOn }"
+        :src="flashSrc"
+        alt=""
       />
     </div>
 
     <div class="force-return__crush" />
     <div class="force-return__flash" :style="{ opacity: flash }" aria-hidden="true" />
+    <div class="force-return__rift" aria-hidden="true" />
     <div class="force-return__copy">
       <p class="force-return__eyebrow">FORCED RETURN · NOW</p>
       <h2 class="force-return__title">时空坍塌。</h2>
@@ -28,153 +23,93 @@
 </template>
 
 <script>
-import { videoList } from '@/utils/videos'
-import { isMobileDevice } from '@/utils/device'
+import { photoList, photosEarly, photosLate, photosMid, pick } from '@/utils/photos'
 
 export default {
   name: 'ForceReturn',
   data() {
     return {
-      sources: [],
-      opacities: [0, 1, 0],
+      baseSrc: '',
+      flashSrc: '',
+      flashOn: false,
       flash: 0,
-      jumpTimer: null,
+      crushScale: 1,
       sequenceTimer: null,
-      exitTimer: null,
       running: false,
-      exiting: false,
-      isLite: isMobileDevice()
+      exiting: false
     }
   },
   mounted() {
-    const list = videoList.map((v) => v.src)
-    const first = list[0]
-    const last = list[list.length - 1]
-    const mid = list[Math.floor(list.length / 2)] || last
-    // 0 首 / 1 尾 / 2 中 —— 手机也保留三路叠层（同时播最多 2 路可见）
-    this.sources = [first, last, mid]
-    this.opacities = [0.08, 1, 0]
-    this.$nextTick(() => this.startBurst())
+    this.baseSrc = pick(photosLate()) || (photoList[0] && photoList[0].src)
+    this.flashSrc = pick(photosEarly()) || this.baseSrc
+    this.running = true
+    this.runCollapse()
   },
   beforeDestroy() {
     this.stopBurst()
   },
   methods: {
-    getVideos() {
-      const result = []
-      for (let i = 0; i < this.sources.length; i++) {
-        const ref = this.$refs['fv' + i]
-        const el = Array.isArray(ref) ? ref[0] : ref
-        if (el) result.push(el)
-      }
-      return result
-    },
-    showFocus(index) {
-      const next = [0.06, 0.06, 0]
-      next[index] = 1
-      // 首尾互为 ghost
-      if (index === 0) next[1] = 0.1
-      if (index === 1) next[0] = 0.1
-      this.opacities = next
-    },
-    nudge(index, ratio) {
-      const videos = this.getVideos()
-      const video = videos[index]
-      if (!video || !video.duration) return
-      try {
-        video.currentTime = Math.min(Math.max(0.05, video.duration * ratio), video.duration - 0.08)
-        video.playbackRate = this.isLite ? 2.6 + Math.random() * 1.6 : 3.2 + Math.random() * 2
-        if (video.paused) {
-          const p = video.play()
-          if (p && p.catch) p.catch(() => {})
-        }
-      } catch (e) {
-        /* ignore */
-      }
-    },
     wait(ms) {
       return new Promise((resolve) => {
         this.sequenceTimer = window.setTimeout(resolve, ms)
       })
     },
-    async startBurst() {
-      this.getVideos().forEach((video, i) => {
-        const boot = () => {
-          try {
-            const ratios = [0.1, 0.5, 0.3]
-            const dur = video.duration || 4
-            video.currentTime = Math.min(dur * ratios[i], Math.max(0.08, dur - 0.2))
-            video.playbackRate = this.isLite ? 2.8 : 3.2 + i * 0.4
-            const p = video.play()
-            if (p && p.catch) p.catch(() => {})
-          } catch (e) {
-            /* ignore */
-          }
-        }
-        if (video.readyState >= 1) boot()
-        else video.addEventListener('loadedmetadata', boot, { once: true })
-      })
-
-      this.running = true
-      await this.runPingPong()
+    async hardCut(src, hold, blackMs) {
+      if (!this.running) return
+      this.flash = 0.92
+      await this.wait(blackMs != null ? blackMs : 35 + Math.random() * 30)
+      if (!this.running) return
+      this.flashSrc = src
+      this.flashOn = true
+      this.baseSrc = src
+      this.flash = 0
+      await this.wait(hold)
+      this.flashOn = false
     },
-    async runPingPong() {
-      // 节奏：尾稳 → 闪首 → 闪尾 → 闪首 → 中段点缀 → 渐稳尾 → 收黑
-      const steps = [
-        { focus: 1, hold: 420, flash: 0.15, ratio: 0.45 },
-        { focus: 0, hold: 160, flash: 0.75, ratio: 0.12 },
-        { focus: 1, hold: 200, flash: 0.55, ratio: 0.62 },
-        { focus: 0, hold: 140, flash: 0.8, ratio: 0.2 },
-        { focus: 1, hold: 280, flash: 0.35, ratio: 0.7 },
-        { focus: 2, hold: 150, flash: 0.65, ratio: 0.4 },
-        { focus: 0, hold: 120, flash: 0.7, ratio: 0.08 },
-        { focus: 1, hold: 360, flash: 0.25, ratio: 0.55 },
-        { focus: 0, hold: 110, flash: 0.85, ratio: 0.15 },
-        { focus: 1, hold: 500, flash: 0.2, ratio: 0.75 }
-      ]
+    async runCollapse() {
+      const early = photosEarly()
+      const mid = photosMid()
+      const late = photosLate()
+      const all = photoList.length ? photoList : []
 
-      // 循环约两轮再进入收束（总长约 8s 量级，配合 home 11s）
-      for (let round = 0; round < 2 && this.running; round++) {
-        for (let s = 0; s < steps.length && this.running; s++) {
-          const step = steps[s]
-          this.flash = step.flash
-          await this.wait(45)
-          this.showFocus(step.focus)
-          this.nudge(step.focus, step.ratio)
-          this.flash = Math.max(0, step.flash * 0.15)
-          await this.wait(step.hold + (this.isLite ? 40 : 0))
-        }
+      for (let i = 0; i < 10 && this.running; i++) {
+        const src = pick(all.length ? all : late)
+        this.crushScale = 1 + i * 0.012
+        await this.hardCut(src, 70 + Math.random() * 55, 28 + Math.random() * 25)
+      }
+
+      for (let i = 0; i < 6 && this.running; i++) {
+        this.crushScale = 1.12 + i * 0.02
+        await this.hardCut(pick(early), 90 + Math.random() * 40, 40)
+        if (!this.running) return
+        await this.hardCut(pick(late), 100 + Math.random() * 50, 40)
+      }
+
+      if (this.running) {
+        this.crushScale = 1.28
+        await this.hardCut(pick(mid), 120, 50)
+        await this.hardCut(pick(early), 80, 35)
+        await this.hardCut(pick(late), 140, 45)
       }
 
       if (!this.running) return
-      // 更自然退出：稳住尾层，再收黑
       this.exiting = true
-      this.showFocus(1)
-      this.nudge(1, 0.8)
-      this.flash = 0.1
-      await this.wait(400)
+      this.crushScale = 1.38
+      await this.hardCut(pick(late), 280, 60)
+      if (!this.running) return
+      this.crushScale = 1.48
+      await this.hardCut(pick(late), 320, 50)
       this.flash = 0.35
-      await this.wait(350)
+      await this.wait(200)
       this.flash = 0.7
-      await this.wait(400)
+      await this.wait(280)
       this.flash = 1
-      this.opacities = [0, 0, 0]
+      this.flashOn = false
     },
     stopBurst() {
       this.running = false
-      if (this.jumpTimer) clearTimeout(this.jumpTimer)
-      this.jumpTimer = null
       if (this.sequenceTimer) clearTimeout(this.sequenceTimer)
       this.sequenceTimer = null
-      if (this.exitTimer) clearTimeout(this.exitTimer)
-      this.exitTimer = null
-      this.getVideos().forEach((v) => {
-        try {
-          v.pause()
-        } catch (e) {
-          /* ignore */
-        }
-      })
     }
   }
 }
@@ -186,71 +121,90 @@ export default {
   inset: 0;
   z-index: 70;
   overflow: hidden;
-  background: #020308;
+  background: #000;
   animation: crushIn 9.5s cubic-bezier(0.55, 0.05, 0.35, 1) both;
 
   &.is-exit {
     animation: none;
-    transform: scale(1.1);
-    filter: contrast(1.35);
   }
 
   &__stack {
     position: absolute;
-    inset: -4%;
-    filter: contrast(1.18) saturate(0.58) brightness(0.82);
-    transition: transform 0.8s ease;
+    inset: -6%;
+    transition: transform 0.18s cubic-bezier(0.55, 0.05, 0.35, 1);
+    filter: contrast(1.35) saturate(0.45) brightness(0.78);
   }
 
   &.is-exit &__stack {
-    transform: scale(1.06);
-    filter: contrast(1.3) saturate(0.4) brightness(0.55);
+    filter: contrast(1.55) saturate(0.25) brightness(0.45);
   }
 
-  &__video {
+  &__photo {
     position: absolute;
     inset: 0;
     width: 100%;
     height: 100%;
     object-fit: cover;
-    transition: opacity 95ms ease;
-    will-change: opacity;
 
-    &.layer-0 {
-      transform: scale(1.04);
+    &.is-base {
+      opacity: 1;
+      z-index: 1;
     }
 
-    &.layer-1 {
-      transform: scale(1.01);
-    }
+    &.is-flash {
+      opacity: 0;
+      z-index: 2;
+      transition: none;
 
-    &.layer-2 {
-      transform: scale(1.08);
-      filter: hue-rotate(-10deg) contrast(1.2);
+      &.is-on {
+        opacity: 1;
+      }
     }
   }
 
   &__crush {
     position: absolute;
     inset: 0;
-    z-index: 1;
-    background: radial-gradient(circle at 50% 50%, transparent 0%, rgba(2, 3, 8, 0.2) 42%, rgba(2, 3, 8, 0.88) 80%);
+    z-index: 3;
+    background: radial-gradient(circle at 50% 50%, transparent 0%, rgba(0, 0, 0, 0.15) 35%, rgba(0, 0, 0, 0.92) 78%);
     animation: crushVeil 9.5s ease both;
+    pointer-events: none;
+  }
+
+  &__rift {
+    position: absolute;
+    left: 50%;
+    top: 10%;
+    bottom: 10%;
+    width: 2px;
+    transform: translateX(-50%) scaleY(0.2);
+    z-index: 4;
+    pointer-events: none;
+    background: linear-gradient(
+      180deg,
+      transparent,
+      rgba(220, 230, 255, 0.55) 30%,
+      rgba(176, 30, 58, 0.7) 50%,
+      rgba(220, 230, 255, 0.55) 70%,
+      transparent
+    );
+    opacity: 0.85;
+    animation: riftGrow 9.5s ease-out both;
+    box-shadow: 0 0 28px rgba(200, 210, 255, 0.35);
   }
 
   &__flash {
     position: absolute;
     inset: 0;
-    z-index: 2;
+    z-index: 5;
     background: #000;
     pointer-events: none;
-    transition: opacity 50ms ease;
   }
 
   &__copy {
     position: absolute;
     inset: 0;
-    z-index: 3;
+    z-index: 6;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -261,8 +215,8 @@ export default {
   }
 
   &.is-exit &__copy {
-    opacity: 0.35;
-    transition: opacity 0.8s ease;
+    opacity: 0.25;
+    transition: opacity 0.7s ease;
   }
 
   &__eyebrow {
@@ -295,24 +249,33 @@ export default {
 @keyframes crushIn {
   0% {
     transform: scale(1);
-    filter: contrast(1);
-  }
-  60% {
-    transform: scale(1.07);
-    filter: contrast(1.28);
   }
   100% {
-    transform: scale(1.12);
-    filter: contrast(1.4);
+    transform: scale(1.04);
   }
 }
 
 @keyframes crushVeil {
   0% {
-    opacity: 0.3;
+    opacity: 0.25;
   }
   100% {
     opacity: 1;
+  }
+}
+
+@keyframes riftGrow {
+  0% {
+    transform: translateX(-50%) scaleY(0.15);
+    opacity: 0.4;
+  }
+  55% {
+    transform: translateX(-50%) scaleY(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(-50%) scaleY(1.05);
+    opacity: 0.55;
   }
 }
 
@@ -320,14 +283,14 @@ export default {
   0% {
     opacity: 0;
   }
-  14% {
+  12% {
     opacity: 1;
   }
-  78% {
+  72% {
     opacity: 0.95;
   }
   100% {
-    opacity: 0.55;
+    opacity: 0.4;
   }
 }
 </style>

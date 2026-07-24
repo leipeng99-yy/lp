@@ -11,7 +11,18 @@
       }
     ]"
   >
-    <div class="temporal-disorder__stage">
+    <!-- 回声散尽：照片软溶；开场紊乱：轻量视频 -->
+    <div v-if="mode === 'close'" class="temporal-disorder__photos">
+      <img
+        v-for="(src, i) in photoSlots"
+        :key="'ph-' + i + '-' + src"
+        class="temporal-disorder__photo"
+        :class="{ 'is-on': photoFocus === i }"
+        :src="src"
+        alt=""
+      />
+    </div>
+    <div v-else class="temporal-disorder__stage">
       <video
         v-for="(src, i) in layerSrcs"
         :key="mode + '-' + i"
@@ -29,7 +40,8 @@
 
     <div class="temporal-disorder__axis" aria-hidden="true" />
     <div class="temporal-disorder__blackout" :style="{ opacity: blackout }" />
-    <div v-if="!isLite" class="temporal-disorder__scan" aria-hidden="true" />
+    <div v-if="mode === 'close'" class="temporal-disorder__echo-veil" aria-hidden="true" />
+    <div v-if="!isLite && mode !== 'close'" class="temporal-disorder__scan" aria-hidden="true" />
 
     <div class="temporal-disorder__copy">
       <p class="temporal-disorder__eyebrow">{{ eyebrow }}</p>
@@ -41,6 +53,7 @@
 
 <script>
 import { videoList } from '@/utils/videos'
+import { photosEarly, photosLate, photosMid, pick } from '@/utils/photos'
 import { isMobileDevice } from '@/utils/device'
 
 export default {
@@ -61,9 +74,9 @@ export default {
       pulseTimer: null,
       running: false,
       layerSrcs: [],
-      // close：0=首(起点) 1=尾(尽头) 2=中段点缀；默认主显尾
-      focus: 1,
-      ghost: 0.12,
+      focus: 0,
+      photoSlots: ['', ''],
+      photoFocus: 1,
       isLite: isMobileDevice()
     }
   },
@@ -77,24 +90,17 @@ export default {
     }
   },
   mounted() {
-    const list = videoList.map((v) => v.src)
-    const first = list[0]
-    const last = list[list.length - 1]
-    const mid = list[Math.floor(list.length / 2)] || last
-
     if (this.mode === 'close') {
-      // 收束：首 / 尾 / 中 —— 闪现闪回
-      this.layerSrcs = [first, last, mid]
-      this.focus = 1
-    } else if (this.isLite) {
-      this.layerSrcs = [first, list[Math.min(1, list.length - 1)]]
-      this.focus = 0
+      this.photoSlots = [pick(photosEarly()), pick(photosLate())]
+      this.photoFocus = 1
     } else {
-      this.layerSrcs = list.slice(0, 2)
+      const list = videoList.map((v) => v.src)
+      this.layerSrcs = this.isLite
+        ? [list[0], list[Math.min(1, list.length - 1)]]
+        : list.slice(0, 2)
       this.focus = 0
+      this.$nextTick(() => this.bootVideos())
     }
-
-    this.$nextTick(() => this.bootVideos())
     if (this.active) this.startPulse()
   },
   beforeDestroy() {
@@ -102,19 +108,6 @@ export default {
   },
   methods: {
     layerStyle(i) {
-      if (this.mode === 'close') {
-        // 主层全显；非主层作轻微叠影；爆发时由 focus 切换
-        if (i === this.focus) {
-          return { opacity: 1, zIndex: 3 }
-        }
-        if (i === 2) {
-          // 中段只在被 focus 时出现，平时几乎不可见
-          return { opacity: this.focus === 2 ? 1 : 0, zIndex: 2 }
-        }
-        // 首↔尾：非焦点保留 ghost，形成叠影穿越感
-        return { opacity: this.ghost, zIndex: 1 }
-      }
-      // 开场：主层 + 次层淡叠
       if (i === this.focus) return { opacity: 1, zIndex: 2 }
       return { opacity: this.bursting ? 0.45 : 0.28, zIndex: 1 }
     },
@@ -132,15 +125,8 @@ export default {
         const boot = () => {
           try {
             const dur = video.duration && !Number.isNaN(video.duration) ? video.duration : 4
-            if (this.mode === 'close') {
-              // 首偏开头、尾偏中后、中段中部
-              const ratios = [0.12, 0.55, 0.35]
-              video.currentTime = Math.min(dur * ratios[i], Math.max(0.08, dur - 0.2))
-              video.playbackRate = this.isLite ? 3 + i * 0.2 : 3.2 + i * 0.3
-            } else {
-              video.currentTime = Math.min(dur * (0.15 + i * 0.12), Math.max(0.1, dur - 0.2))
-              video.playbackRate = this.isLite ? 4 + i * 0.4 : 3.5 + i
-            }
+            video.currentTime = Math.min(dur * (0.15 + i * 0.12), Math.max(0.1, dur - 0.2))
+            video.playbackRate = this.isLite ? 4 + i * 0.4 : 3.5 + i
             const p = video.play()
             if (p && p.catch) p.catch(() => {})
           } catch (e) {
@@ -153,24 +139,18 @@ export default {
     },
     calmGap() {
       if (this.sparse) return 2800 + Math.random() * 1800
-      if (this.mode === 'close') {
-        return this.isLite ? 850 + Math.random() * 650 : 1000 + Math.random() * 800
-      }
+      if (this.mode === 'close') return 1100 + Math.random() * 900
       return this.isLite ? 1400 + Math.random() * 900 : 1400 + Math.random() * 1200
     },
     startPulse() {
       this.stopPulse(false)
       this.running = true
-      if (this.mode === 'close') {
-        this.focus = 1
-        this.ghost = 0.12
-      }
-      this.applyVideoChaos(false)
+      if (this.mode !== 'close') this.applyVideoChaos(false)
       const schedule = () => {
         if (!this.running) return
         this.pulseTimer = window.setTimeout(() => this.doBurst(schedule), this.calmGap())
       }
-      const firstDelay = this.sparse ? 1600 : this.mode === 'close' ? 600 : 900
+      const firstDelay = this.sparse ? 1600 : this.mode === 'close' ? 500 : 900
       this.pulseTimer = window.setTimeout(() => this.doBurst(schedule), firstDelay)
     },
     wait(ms) {
@@ -183,11 +163,8 @@ export default {
       this.bursting = true
       this.$emit('stutter', { hard: true })
 
-      if (this.mode === 'close') {
-        await this.flashbackBurst()
-      } else {
-        await this.openBurst()
-      }
+      if (this.mode === 'close') await this.echoPhotoBurst()
+      else await this.openBurst()
 
       this.endBurst(schedule)
     },
@@ -206,109 +183,67 @@ export default {
         await this.wait(70 + Math.random() * 60)
       }
     },
-    async flashbackBurst() {
-      // 黑 → 闪回起点(首) → 淡 → 闪回尽头(尾) → 偶发中段
+    async echoPhotoBurst() {
+      // 柔和溶镜：短暗 → 起点 → 淡暗 → 尽头（偶发中段）
       if (!this.running) return
-      this.blackout = 0.92
-      this.ghost = 0.08
-      await this.wait(70 + Math.random() * 40)
-      if (!this.running) return
-
-      this.focus = 0
-      this.nudgeLayer(0, 0.08 + Math.random() * 0.15)
-      this.applyVideoChaos(true, 0)
-      this.blackout = 0.08
-      await this.wait(100 + Math.random() * 70)
+      this.blackout = 0.55
+      await this.wait(90 + Math.random() * 50)
       if (!this.running) return
 
-      this.blackout = 0.85
-      await this.wait(55 + Math.random() * 35)
-      if (!this.running) return
-
-      this.focus = 1
-      this.nudgeLayer(1, 0.4 + Math.random() * 0.35)
-      this.applyVideoChaos(true, 1)
+      this.$set(this.photoSlots, 0, pick(photosEarly()))
+      this.photoFocus = 0
       this.blackout = 0.06
-      await this.wait(110 + Math.random() * 90)
+      await this.wait(240 + Math.random() * 140)
       if (!this.running) return
 
-      if (Math.random() > 0.65) {
-        this.blackout = 0.75
-        await this.wait(45)
-        if (!this.running) return
-        this.focus = 2
-        this.nudgeLayer(2, 0.25 + Math.random() * 0.3)
-        this.applyVideoChaos(true, 2)
-        this.blackout = 0.1
-        await this.wait(90 + Math.random() * 50)
-        if (!this.running) return
-        this.blackout = 0.7
-        await this.wait(40)
-        if (!this.running) return
-        this.focus = 1
-        this.blackout = 0.05
-        await this.wait(80)
-      }
+      this.blackout = 0.4
+      await this.wait(100)
+      if (!this.running) return
 
-      this.ghost = 0.14
-      this.focus = 1
-    },
-    nudgeLayer(index, ratio) {
-      const videos = this.getVideos()
-      const video = videos[index]
-      if (!video || !video.duration) return
-      try {
-        const dur = video.duration
-        video.currentTime = Math.min(Math.max(0.05, dur * ratio), dur - 0.08)
-        if (video.paused) {
-          const p = video.play()
-          if (p && p.catch) p.catch(() => {})
-        }
-      } catch (e) {
-        /* ignore */
+      this.$set(this.photoSlots, 1, pick(photosLate()))
+      this.photoFocus = 1
+      this.blackout = 0.05
+      await this.wait(280 + Math.random() * 160)
+      if (!this.running) return
+
+      if (Math.random() > 0.55) {
+        this.blackout = 0.35
+        await this.wait(80)
+        if (!this.running) return
+        this.$set(this.photoSlots, 0, pick(photosMid()))
+        this.photoFocus = 0
+        this.blackout = 0.08
+        await this.wait(200 + Math.random() * 100)
+        if (!this.running) return
+        this.blackout = 0.3
+        await this.wait(70)
+        this.$set(this.photoSlots, 1, pick(photosLate()))
+        this.photoFocus = 1
+        this.blackout = 0.05
+        await this.wait(180)
       }
     },
     endBurst(schedule) {
       this.blackout = 0
       this.bursting = false
-      this.applyVideoChaos(false)
+      if (this.mode !== 'close') this.applyVideoChaos(false)
       this.$emit('stutter', { hard: false })
       if (typeof schedule === 'function') schedule()
     },
-    applyVideoChaos(intense, onlyIndex) {
+    applyVideoChaos(intense) {
       this.getVideos().forEach((video, i) => {
-        if (onlyIndex != null && i !== onlyIndex) return
         try {
           if (intense) {
-            if (this.isLite) {
-              video.playbackRate = 5 + Math.random() * 2.5
-              // 收束闪回已用 nudgeLayer；开场才偶发跳
-              if (this.mode !== 'close' && video.duration && Math.random() > 0.35) {
-                const jump = 0.25 + Math.random() * 0.5
-                video.currentTime = Math.min(
-                  video.duration - 0.05,
-                  Math.max(0.05, video.currentTime + (Math.random() > 0.5 ? jump : -jump * 0.4))
-                )
-              }
-            } else {
-              video.playbackRate = this.mode === 'close' ? 6 + Math.random() * 4 : 12 + Math.random() * 6 + i * 0.5
-              if (this.mode !== 'close' && video.duration) {
-                const jump = 0.4 + Math.random() * 1.2
-                video.currentTime = Math.min(
-                  video.duration - 0.05,
-                  Math.max(0.05, video.currentTime + (Math.random() > 0.5 ? jump : -jump * 0.5))
-                )
-              }
+            video.playbackRate = this.isLite ? 5 + Math.random() * 2.5 : 12 + Math.random() * 6 + i * 0.5
+            if (video.duration && Math.random() > 0.35) {
+              const jump = 0.25 + Math.random() * 0.8
+              video.currentTime = Math.min(
+                video.duration - 0.05,
+                Math.max(0.05, video.currentTime + (Math.random() > 0.5 ? jump : -jump * 0.4))
+              )
             }
           } else {
-            video.playbackRate =
-              this.mode === 'close'
-                ? this.isLite
-                  ? 2.6 + Math.random() * 0.8
-                  : 2.8 + Math.random() * 1
-                : this.isLite
-                  ? 3.2 + Math.random() * 1.2
-                  : 3 + Math.random() * 1.5 + i * 0.2
+            video.playbackRate = this.isLite ? 3.2 + Math.random() * 1.2 : 3 + Math.random() * 1.5 + i * 0.2
           }
           if (video.paused) {
             const p = video.play()
@@ -325,7 +260,7 @@ export default {
       this.pulseTimer = null
       this.blackout = 0
       this.bursting = false
-      if (resetRate) {
+      if (resetRate && this.mode !== 'close') {
         this.getVideos().forEach((video) => {
           try {
             video.playbackRate = 1
@@ -357,8 +292,45 @@ export default {
     z-index: 65;
   }
 
-  &.is-burst .temporal-disorder__stage {
+  &.is-burst.is-flashback .temporal-disorder__photos {
+    transform: scale(1.03);
+  }
+
+  &.is-burst:not(.is-flashback) .temporal-disorder__stage {
     transform: scale(1.045);
+  }
+
+  &__photos {
+    position: absolute;
+    inset: -2%;
+    transition: transform 0.35s ease;
+  }
+
+  &__photo {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0;
+    filter: saturate(0.55) contrast(1.05) brightness(0.88) sepia(0.12);
+    transition: opacity 180ms ease;
+    will-change: opacity;
+
+    &.is-on {
+      opacity: 1;
+      z-index: 2;
+    }
+  }
+
+  &__echo-veil {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    pointer-events: none;
+    background:
+      radial-gradient(ellipse 70% 55% at 50% 45%, transparent 0%, rgba(8, 6, 10, 0.35) 100%),
+      linear-gradient(180deg, rgba(40, 28, 24, 0.12), transparent 40%, rgba(8, 10, 16, 0.35));
   }
 
   &__stage {
@@ -378,23 +350,6 @@ export default {
     will-change: opacity;
   }
 
-  &.is-flashback &__video {
-    filter: contrast(1.18) saturate(0.62) brightness(0.8);
-  }
-
-  &.is-flashback &__video.layer-0 {
-    transform: scale(1.03);
-  }
-
-  &.is-flashback &__video.layer-1 {
-    transform: scale(1.01);
-  }
-
-  &.is-flashback &__video.layer-2 {
-    transform: scale(1.06);
-    filter: contrast(1.25) saturate(0.5) brightness(0.75) hue-rotate(-8deg);
-  }
-
   &.is-lite &__video {
     filter: contrast(1.2) saturate(0.65) brightness(0.78);
   }
@@ -406,7 +361,7 @@ export default {
     bottom: 18%;
     width: 1px;
     transform: translateX(-50%);
-    z-index: 4;
+    z-index: 5;
     pointer-events: none;
     background: linear-gradient(
       180deg,
@@ -430,8 +385,13 @@ export default {
     inset: 0;
     background: #000;
     pointer-events: none;
-    z-index: 5;
-    transition: opacity 55ms ease;
+    z-index: 6;
+    transition: opacity 70ms ease;
+  }
+
+  &.is-flashback &__blackout {
+    background: #0a0809;
+    transition: opacity 120ms ease;
   }
 
   &__scan {
@@ -452,7 +412,7 @@ export default {
   &__copy {
     position: absolute;
     inset: 0;
-    z-index: 7;
+    z-index: 8;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -464,7 +424,7 @@ export default {
   }
 
   &.is-flashback &__copy {
-    background: radial-gradient(ellipse 38% 28% at 50% 48%, rgba(2, 3, 8, 0.1), rgba(2, 3, 8, 0.36));
+    background: radial-gradient(ellipse 36% 26% at 50% 48%, rgba(2, 3, 8, 0.08), rgba(2, 3, 8, 0.32));
   }
 
   &__eyebrow {
