@@ -1,7 +1,7 @@
 <template>
   <section
     class="temporal-disorder"
-    :class="['is-' + mode, { 'is-dim': dim, 'is-burst': bursting }]"
+    :class="['is-' + mode, { 'is-dim': dim, 'is-burst': bursting, 'is-lite': isLite }]"
   >
     <div class="temporal-disorder__stage">
       <video
@@ -13,14 +13,15 @@
         :src="src"
         muted
         playsinline
-        preload="auto"
+        webkit-playsinline
+        preload="metadata"
       />
     </div>
 
     <div class="temporal-disorder__axis" aria-hidden="true" />
     <div class="temporal-disorder__blackout" :style="{ opacity: blackout }" />
-    <div class="temporal-disorder__scan" aria-hidden="true" />
-    <div class="temporal-disorder__grain" aria-hidden="true" />
+    <div v-if="!isLite" class="temporal-disorder__scan" aria-hidden="true" />
+    <div v-if="!isLite" class="temporal-disorder__grain" aria-hidden="true" />
 
     <div class="temporal-disorder__copy">
       <p class="temporal-disorder__eyebrow">{{ eyebrow }}</p>
@@ -32,6 +33,7 @@
 
 <script>
 import { videoList } from '@/utils/videos'
+import { isMobileDevice } from '@/utils/device'
 
 export default {
   name: 'TemporalDisorder',
@@ -39,7 +41,6 @@ export default {
     mode: { type: String, default: 'open' },
     dim: { type: Boolean, default: false },
     active: { type: Boolean, default: true },
-    // askPast 时降频
     sparse: { type: Boolean, default: false },
     eyebrow: { type: String, default: '' },
     title: { type: String, default: '' },
@@ -51,7 +52,8 @@ export default {
       bursting: false,
       pulseTimer: null,
       running: false,
-      layerSrcs: []
+      layerSrcs: [],
+      isLite: isMobileDevice()
     }
   },
   watch: {
@@ -65,10 +67,11 @@ export default {
   },
   mounted() {
     const list = videoList.map((v) => v.src)
+    const count = this.isLite ? 1 : this.mode === 'close' ? 2 : 2
     if (this.mode === 'close') {
-      this.layerSrcs = list.slice(-3).length ? list.slice(-3) : list.slice(0, 3)
+      this.layerSrcs = list.slice(-count)
     } else {
-      this.layerSrcs = list.slice(0, Math.min(3, list.length))
+      this.layerSrcs = list.slice(0, count)
     }
     this.$nextTick(() => {
       this.bootVideos()
@@ -94,7 +97,8 @@ export default {
           try {
             const dur = video.duration && !Number.isNaN(video.duration) ? video.duration : 4
             video.currentTime = Math.min(dur * (0.15 + i * 0.12), Math.max(0.1, dur - 0.2))
-            video.playbackRate = 4 + i
+            // 手机少用超高 playbackRate
+            video.playbackRate = this.isLite ? 1.25 : 3.5 + i
             const p = video.play()
             if (p && p.catch) p.catch(() => {})
           } catch (e) {
@@ -107,6 +111,8 @@ export default {
     },
     calmGap() {
       if (this.sparse) return 2800 + Math.random() * 1800
+      // 收束紊乱更疏，更像穿梭拉长
+      if (this.mode === 'close') return 1800 + Math.random() * 1400
       return 1400 + Math.random() * 1200
     },
     startPulse() {
@@ -117,8 +123,10 @@ export default {
         if (!this.running) return
         this.pulseTimer = window.setTimeout(() => this.doBurst(schedule), this.calmGap())
       }
-      // 先平静一会儿再第一次爆发
-      this.pulseTimer = window.setTimeout(() => this.doBurst(schedule), this.sparse ? 1600 : 900)
+      this.pulseTimer = window.setTimeout(
+        () => this.doBurst(schedule),
+        this.sparse ? 1600 : this.mode === 'close' ? 1200 : 900
+      )
     },
     doBurst(schedule) {
       if (!this.running) return
@@ -127,10 +135,9 @@ export default {
       this.applyVideoChaos(true)
       this.$emit('stutter', { hard: true })
 
-      const flashMs = 90 + Math.random() * 100
+      const flashMs = this.isLite ? 120 + Math.random() * 80 : 90 + Math.random() * 100
       this.pulseTimer = window.setTimeout(() => {
-        // 偶发二次短闪
-        if (Math.random() > 0.55) {
+        if (!this.isLite && Math.random() > 0.6) {
           this.blackout = 0.15
           this.pulseTimer = window.setTimeout(() => {
             this.blackout = 0.9
@@ -153,17 +160,30 @@ export default {
       this.getVideos().forEach((video, i) => {
         try {
           if (intense) {
-            video.playbackRate = 14 + Math.random() * 8 + i * 0.5
-            if (video.duration) {
-              const jump = 0.4 + Math.random() * 1.4
-              video.currentTime = Math.min(
-                video.duration - 0.05,
-                Math.max(0.05, video.currentTime + (Math.random() > 0.5 ? jump : -jump * 0.5))
-              )
+            if (this.isLite) {
+              // 手机：短跳帧 + 轻微加速，避免解码炸
+              video.playbackRate = 1.6 + Math.random() * 0.6
+              if (video.duration) {
+                const jump = 0.25 + Math.random() * 0.55
+                video.currentTime = Math.min(
+                  video.duration - 0.05,
+                  Math.max(0.05, video.currentTime + (Math.random() > 0.5 ? jump : -jump * 0.4))
+                )
+              }
+            } else {
+              video.playbackRate = 12 + Math.random() * 6 + i * 0.5
+              if (video.duration) {
+                const jump = 0.4 + Math.random() * 1.2
+                video.currentTime = Math.min(
+                  video.duration - 0.05,
+                  Math.max(0.05, video.currentTime + (Math.random() > 0.5 ? jump : -jump * 0.5))
+                )
+              }
             }
+          } else if (this.isLite) {
+            video.playbackRate = 1.15
           } else {
-            // 平静期仍保持可见的偏快，形成穿越感
-            video.playbackRate = 3.2 + Math.random() * 1.8 + i * 0.3
+            video.playbackRate = 3 + Math.random() * 1.5 + i * 0.2
           }
           if (video.paused) {
             const p = video.play()
@@ -212,14 +232,17 @@ export default {
   }
 
   &.is-burst .temporal-disorder__stage {
-    transform: scale(1.1);
-    filter: contrast(1.45) saturate(0.55) hue-rotate(-8deg);
+    transform: scale(1.06);
+  }
+
+  &.is-lite.is-burst .temporal-disorder__stage {
+    transform: scale(1.03);
   }
 
   &__stage {
     position: absolute;
-    inset: -4%;
-    transition: transform 0.12s ease, filter 0.12s ease;
+    inset: -3%;
+    transition: transform 0.12s ease;
   }
 
   &__video {
@@ -228,21 +251,24 @@ export default {
     width: 100%;
     height: 100%;
     object-fit: cover;
-    filter: contrast(1.18) saturate(0.7) brightness(0.8);
 
     &.layer-1 {
       mix-blend-mode: screen;
-      opacity: 0.38;
-      transform: scale(1.06) translate(1%, -0.8%);
-      filter: contrast(1.35) hue-rotate(-14deg) brightness(0.72);
+      opacity: 0.32;
+      transform: scale(1.05) translate(1%, -0.6%);
     }
+  }
 
-    &.layer-2 {
-      mix-blend-mode: lighten;
-      opacity: 0.22;
-      transform: scale(1.1) translate(-1.5%, 1%);
-      filter: contrast(1.4) hue-rotate(10deg);
+  &.is-lite &__video {
+    filter: none;
+
+    &.layer-1 {
+      display: none;
     }
+  }
+
+  &:not(.is-lite) &__video {
+    filter: contrast(1.15) saturate(0.7) brightness(0.8);
   }
 
   &__axis {
@@ -280,7 +306,7 @@ export default {
     inset: 0;
     z-index: 4;
     pointer-events: none;
-    opacity: 0.22;
+    opacity: 0.2;
     background: repeating-linear-gradient(
       0deg,
       rgba(0, 0, 0, 0.18) 0,
@@ -295,7 +321,7 @@ export default {
     inset: 0;
     z-index: 4;
     pointer-events: none;
-    opacity: 0.08;
+    opacity: 0.07;
     background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   }
 

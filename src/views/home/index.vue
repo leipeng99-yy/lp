@@ -361,10 +361,11 @@ export default {
       }, 2800)
     },
     onAllVideosDone() {
+      // 拉长收束紊乱：穿梭感
       this.phase = 'endDisorder'
       const audio = this.$refs.bgm
       if (audio && !this.voicePlaying) {
-        this.fadeVolume(audio, audio.volume, BGM_PEAK_VOL, 900)
+        this.fadeVolume(audio, audio.volume, BGM_PEAK_VOL, 1200)
       }
       this.queue(() => {
         this.phase = 'signalBreak'
@@ -374,8 +375,8 @@ export default {
           this.fakeAnchoring = false
           this.dialogPos = { x: 50, y: 48 }
           this.dialogVisible = true
-        }, 2800)
-      }, 4200)
+        }, 4200)
+      }, 7600)
     },
     chooseStay() {
       this.clearTimers()

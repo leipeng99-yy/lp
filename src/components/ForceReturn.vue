@@ -1,5 +1,5 @@
 <template>
-  <section class="force-return">
+  <section class="force-return" :class="{ 'is-lite': isLite }">
     <div class="force-return__grid">
       <div v-for="(src, i) in sources" :key="i" class="force-return__cell">
         <video
@@ -8,7 +8,8 @@
           :src="src"
           muted
           playsinline
-          preload="auto"
+          webkit-playsinline
+          preload="metadata"
         />
       </div>
     </div>
@@ -23,6 +24,7 @@
 
 <script>
 import { videoList } from '@/utils/videos'
+import { isMobileDevice } from '@/utils/device'
 
 export default {
   name: 'ForceReturn',
@@ -30,11 +32,13 @@ export default {
     return {
       sources: [],
       rafId: null,
-      running: false
+      running: false,
+      isLite: isMobileDevice()
     }
   },
   mounted() {
-    this.sources = videoList.slice(0, 6).map((v) => v.src)
+    const n = this.isLite ? 1 : 3
+    this.sources = videoList.slice(0, n).map((v) => v.src)
     this.$nextTick(() => this.startBurst())
   },
   beforeDestroy() {
@@ -55,7 +59,7 @@ export default {
         const boot = () => {
           try {
             video.currentTime = Math.min(0.2, (video.duration || 1) * 0.1)
-            video.playbackRate = 3.5 + (i % 3)
+            video.playbackRate = this.isLite ? 1.4 : 3 + (i % 3)
             const p = video.play()
             if (p && p.catch) p.catch(() => {})
           } catch (e) {
@@ -68,15 +72,24 @@ export default {
 
       this.running = true
       let last = performance.now()
+      let acc = 0
       const tick = (now) => {
         if (!this.running) return
         const dt = Math.min(0.05, (now - last) / 1000)
         last = now
+        acc += dt
+        // 手机降低 scrub 频率
+        if (this.isLite && acc < 0.18) {
+          this.rafId = requestAnimationFrame(tick)
+          return
+        }
+        if (this.isLite) acc = 0
+
         this.getVideos().forEach((video, i) => {
           if (!video.duration) return
-          // mix of scrubbing frames for shatter feel
-          if (i % 2 === 0) {
-            let t = video.currentTime + dt * (8 + i)
+          if (this.isLite || i % 2 === 0) {
+            const step = this.isLite ? 0.35 : dt * (8 + i)
+            let t = video.currentTime + step
             if (t >= video.duration - 0.05) t = 0.05
             try {
               video.currentTime = t
@@ -119,10 +132,16 @@ export default {
     inset: -8%;
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    grid-template-rows: repeat(2, 1fr);
+    grid-template-rows: repeat(1, 1fr);
     gap: 1px;
-    filter: contrast(1.35) saturate(0.5) hue-rotate(8deg);
+    filter: contrast(1.25) saturate(0.55);
     animation: gridSpin 5.6s ease-in both;
+  }
+
+  &.is-lite &__grid {
+    grid-template-columns: 1fr;
+    filter: none;
+    inset: 0;
   }
 
   &__cell {
@@ -137,12 +156,22 @@ export default {
     filter: brightness(0.75);
   }
 
+  &.is-lite &__video {
+    filter: brightness(0.7);
+  }
+
   &__crush {
     position: absolute;
     inset: 0;
     background:
       radial-gradient(circle at 50% 50%, transparent 0%, rgba(2, 3, 8, 0.2) 40%, rgba(2, 3, 8, 0.92) 78%),
-      repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.04) 0, rgba(255, 255, 255, 0.04) 1px, transparent 1px, transparent 3px);
+      repeating-linear-gradient(
+        0deg,
+        rgba(255, 255, 255, 0.04) 0,
+        rgba(255, 255, 255, 0.04) 1px,
+        transparent 1px,
+        transparent 3px
+      );
     animation: crushVeil 5.6s ease both;
   }
 
@@ -206,7 +235,7 @@ export default {
     transform: scale(1) rotate(0deg);
   }
   100% {
-    transform: scale(1.35) rotate(-4deg);
+    transform: scale(1.28) rotate(-3deg);
   }
 }
 

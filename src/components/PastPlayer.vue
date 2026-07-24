@@ -1,32 +1,59 @@
 <template>
-  <section class="past-player">
+  <section class="past-player" :class="{ 'is-mobile': isMobile }">
     <div class="past-player__stage">
       <video
         ref="v0"
         class="past-player__video"
         :class="{ 'is-active': activeSlot === 0 }"
         playsinline
-        preload="auto"
+        webkit-playsinline
+        preload="metadata"
         @ended="onEnded"
         @timeupdate="onTime"
+        @loadedmetadata="onSlotMeta(0)"
       />
       <video
         ref="v1"
         class="past-player__video"
         :class="{ 'is-active': activeSlot === 1 }"
         playsinline
-        preload="auto"
+        webkit-playsinline
+        preload="metadata"
         @ended="onEnded"
         @timeupdate="onTime"
+        @loadedmetadata="onSlotMeta(1)"
       />
     </div>
 
     <div class="past-player__veil" />
-    <div class="past-player__grain" aria-hidden="true" />
+    <div v-if="!isMobile" class="past-player__grain" aria-hidden="true" />
+
+    <!-- 回忆节点时间线 -->
+    <aside class="past-player__rail" aria-label="回忆时间线">
+      <div class="past-player__rail-line" />
+      <button
+        v-for="(item, i) in nodes"
+        :key="item.id"
+        type="button"
+        class="past-player__node"
+        :class="{
+          'is-past': i < index,
+          'is-current': i === index,
+          'is-future': i > index
+        }"
+        :style="{ '--i': i }"
+        :aria-label="item.label"
+        @click="jumpToNode(i)"
+      >
+        <span class="past-player__node-dot" />
+        <span class="past-player__node-label">{{ item.node }}</span>
+      </button>
+    </aside>
 
     <div class="past-player__hud">
-      <p class="past-player__eyebrow">ARCHIVE · ALONG THE TIMELINE</p>
-      <p class="past-player__status">沿时间线回望 · 可拖动总进度</p>
+      <p class="past-player__eyebrow">ARCHIVE · MEMORY NODES</p>
+      <p class="past-player__current">{{ currentLabel }}</p>
+      <p class="past-player__status">沿时间线回望 · 点节点或拖动进度</p>
 
       <div class="past-player__seek">
         <input
@@ -51,9 +78,10 @@
 </template>
 
 <script>
-import { videoList } from '@/utils/videos'
+import { videoList, ESTIMATED_DURATION } from '@/utils/videos'
+import { isMobileDevice } from '@/utils/device'
 
-const CROSSFADE_MS = 320
+const CROSSFADE_MS = 280
 
 export default {
   name: 'PastPlayer',
@@ -62,40 +90,45 @@ export default {
       index: 0,
       activeSlot: 0,
       slotIndex: [-1, -1],
-      durations: [],
+      durations: videoList.map(() => ESTIMATED_DURATION),
       ready: false,
       timelinePos: 0,
       crossing: false,
       nextArmed: false,
-      probing: false
+      isMobile: isMobileDevice()
     }
   },
   computed: {
     total() {
       return videoList.length
     },
+    nodes() {
+      return videoList
+    },
+    currentLabel() {
+      const item = videoList[this.index]
+      return item ? item.label : ''
+    },
     totalDuration() {
-      return this.durations.reduce((s, d) => s + (d || 0), 0)
+      return this.durations.reduce((s, d) => s + (d || ESTIMATED_DURATION), 0)
     },
     offsets() {
       const list = []
       let acc = 0
       for (let i = 0; i < this.durations.length; i++) {
         list.push(acc)
-        acc += this.durations[i] || 0
+        acc += this.durations[i] || ESTIMATED_DURATION
       }
       return list
     }
   },
   mounted() {
-    this.probeDurations().then(() => {
-      this.ready = true
-      this.loadInto(this.activeSlot, 0, true).then(() => {
-        const active = this.getSlot(this.activeSlot)
-        if (active) active.volume = 1
-        this.playSlot(this.activeSlot)
-        this.armNext()
-      })
+    this.ready = true
+    this.loadInto(this.activeSlot, 0, true).then(() => {
+      const active = this.getSlot(this.activeSlot)
+      if (active) active.volume = 1
+      this.playSlot(this.activeSlot)
+      this.armNext()
     })
   },
   beforeDestroy() {
@@ -115,29 +148,11 @@ export default {
     otherSlot(slot) {
       return slot === 0 ? 1 : 0
     },
-    probeDurations() {
-      this.probing = true
-      const tasks = videoList.map(
-        (item) =>
-          new Promise((resolve) => {
-            const el = document.createElement('video')
-            el.preload = 'metadata'
-            el.muted = true
-            el.src = item.src
-            const done = (d) => {
-              el.removeAttribute('src')
-              el.load()
-              resolve(d && !Number.isNaN(d) ? d : 6)
-            }
-            el.addEventListener('loadedmetadata', () => done(el.duration), { once: true })
-            el.addEventListener('error', () => done(6), { once: true })
-            window.setTimeout(() => done(6), 8000)
-          })
-      )
-      return Promise.all(tasks).then((durs) => {
-        this.durations = durs
-        this.probing = false
-      })
+    onSlotMeta(slot) {
+      const video = this.getSlot(slot)
+      const idx = this.slotIndex[slot]
+      if (!video || idx < 0 || !video.duration || Number.isNaN(video.duration)) return
+      this.$set(this.durations, idx, video.duration)
     },
     loadInto(slot, index, fromStart) {
       const video = this.getSlot(slot)
@@ -149,6 +164,9 @@ export default {
             if (fromStart) video.currentTime = 0
             video.playbackRate = 1
             video.volume = slot === this.activeSlot ? 1 : 0
+            if (video.duration && !Number.isNaN(video.duration)) {
+              this.$set(this.durations, index, video.duration)
+            }
           } catch (e) {
             /* ignore */
           }
@@ -191,7 +209,8 @@ export default {
       this.$emit('timeline', {
         pos: this.timelinePos,
         total,
-        ratio: Math.min(1, this.timelinePos / total)
+        ratio: Math.min(1, this.timelinePos / total),
+        index: this.index
       })
     },
     onEnded(e) {
@@ -206,6 +225,20 @@ export default {
       }
       this.crossTo(this.index + 1)
     },
+    jumpToNode(i) {
+      if (!this.ready || this.crossing) return
+      if (i === this.index) {
+        const video = this.getSlot(this.activeSlot)
+        try {
+          video.currentTime = 0
+          if (video.paused) this.playSlot(this.activeSlot)
+        } catch (e) {
+          /* ignore */
+        }
+        return
+      }
+      this.crossTo(i, 0)
+    },
     crossTo(nextIndex, seekInClip) {
       if (nextIndex < 0 || nextIndex >= this.total) return
       if (this.crossing) return
@@ -215,6 +248,7 @@ export default {
       const toSlot = this.otherSlot(fromSlot)
       const fromVideo = this.getSlot(fromSlot)
       const toVideo = this.getSlot(toSlot)
+      const fadeMs = this.isMobile ? 200 : CROSSFADE_MS
 
       const finish = () => {
         this.index = nextIndex
@@ -243,7 +277,7 @@ export default {
         this.playSlot(toSlot)
         this.activeSlot = toSlot
 
-        const steps = 6
+        const steps = this.isMobile ? 4 : 6
         let i = 0
         const fade = () => {
           i += 1
@@ -254,7 +288,7 @@ export default {
           } catch (e) {
             /* ignore */
           }
-          if (i < steps) window.setTimeout(fade, Math.floor(CROSSFADE_MS / steps))
+          if (i < steps) window.setTimeout(fade, Math.floor(fadeMs / steps))
           else finish()
         }
         fade()
@@ -269,10 +303,13 @@ export default {
       let local = t
       for (let i = 0; i < this.durations.length; i++) {
         const start = this.offsets[i] || 0
-        const end = start + (this.durations[i] || 0)
+        const end = start + (this.durations[i] || ESTIMATED_DURATION)
         if (t >= start && (t < end || i === this.durations.length - 1)) {
           targetIndex = i
-          local = Math.min(Math.max(0, t - start), Math.max(0, (this.durations[i] || 0) - 0.05))
+          local = Math.min(
+            Math.max(0, t - start),
+            Math.max(0, (this.durations[i] || ESTIMATED_DURATION) - 0.05)
+          )
           break
         }
       }
@@ -315,14 +352,17 @@ export default {
     height: 100%;
     object-fit: cover;
     opacity: 0;
-    transition: opacity 0.32s ease;
-    filter: saturate(0.88) contrast(1.06) brightness(0.94);
+    transition: opacity 0.28s ease;
     pointer-events: none;
 
     &.is-active {
       opacity: 1;
       z-index: 1;
     }
+  }
+
+  &:not(.is-mobile) &__video {
+    filter: saturate(0.88) contrast(1.06) brightness(0.94);
   }
 
   &__veil {
@@ -344,13 +384,101 @@ export default {
     background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   }
 
+  &__rail {
+    position: absolute;
+    z-index: 4;
+    right: 18px;
+    top: 14%;
+    bottom: 28%;
+    width: 36px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    pointer-events: none;
+  }
+
+  &__rail-line {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    width: 1px;
+    transform: translateX(-50%);
+    background: linear-gradient(
+      180deg,
+      transparent,
+      rgba(200, 208, 220, 0.35) 12%,
+      rgba(200, 208, 220, 0.35) 88%,
+      transparent
+    );
+  }
+
+  &__node {
+    position: relative;
+    z-index: 1;
+    width: 36px;
+    height: 22px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: rgba(200, 212, 228, 0.35);
+    cursor: pointer;
+    pointer-events: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+
+    &.is-past {
+      color: rgba(200, 208, 220, 0.72);
+
+      .past-player__node-dot {
+        background: rgba(200, 208, 220, 0.75);
+        box-shadow: none;
+      }
+    }
+
+    &.is-current {
+      color: var(--text-primary);
+
+      .past-player__node-dot {
+        background: #e8eef5;
+        box-shadow: 0 0 12px rgba(176, 30, 58, 0.55);
+        transform: scale(1.35);
+        animation: nodePulse 1.8s ease-in-out infinite;
+      }
+    }
+
+    &.is-future .past-player__node-dot {
+      background: transparent;
+      border: 1px solid rgba(200, 208, 220, 0.35);
+    }
+  }
+
+  &__node-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    transition: transform 0.35s ease, background 0.35s ease, box-shadow 0.35s ease;
+  }
+
+  &__node-label {
+    font-family: var(--font-display);
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    line-height: 1;
+    opacity: 0.85;
+  }
+
   &__hud {
     position: absolute;
     left: 0;
     right: 0;
     bottom: 0;
     z-index: 3;
-    padding: 24px 28px 34px;
+    padding: 20px 28px 30px;
     text-align: center;
   }
 
@@ -363,17 +491,25 @@ export default {
     color: var(--accent-metal);
   }
 
-  &__status {
+  &__current {
     margin: 10px 0 0;
+    font-family: var(--font-display);
+    font-size: 15px;
+    letter-spacing: 0.28em;
+    text-indent: 0.28em;
+  }
+
+  &__status {
+    margin: 8px 0 0;
     font-weight: 300;
     font-size: 12px;
-    letter-spacing: 0.26em;
+    letter-spacing: 0.22em;
     color: rgba(200, 212, 228, 0.42);
   }
 
   &__seek {
-    margin: 20px auto 0;
-    width: min(460px, 82vw);
+    margin: 18px auto 0;
+    width: min(460px, 78vw);
   }
 
   &__range {
@@ -410,12 +546,63 @@ export default {
   &__meta {
     display: flex;
     justify-content: space-between;
-    width: min(460px, 82vw);
-    margin: 12px auto 0;
+    width: min(460px, 78vw);
+    margin: 10px auto 0;
     font-family: var(--font-display);
     font-size: 11px;
     letter-spacing: 0.18em;
     color: rgba(200, 212, 228, 0.38);
+  }
+
+  &.is-mobile {
+    .past-player__rail {
+      right: 8px;
+      top: 12%;
+      bottom: 32%;
+      width: 28px;
+    }
+
+    .past-player__node-label {
+      display: none;
+    }
+
+    .past-player__node {
+      width: 28px;
+      height: 16px;
+    }
+
+    .past-player__hud {
+      padding: 16px 16px 22px;
+    }
+
+    .past-player__status {
+      font-size: 11px;
+      letter-spacing: 0.14em;
+    }
+  }
+}
+
+@keyframes nodePulse {
+  0%,
+  100% {
+    transform: scale(1.25);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1.45);
+    opacity: 1;
+  }
+}
+
+@media (max-width: 720px) {
+  .past-player__rail {
+    right: 8px;
+    top: 12%;
+    bottom: 32%;
+  }
+
+  .past-player__node-label {
+    display: none;
   }
 }
 </style>
