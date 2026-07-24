@@ -361,14 +361,14 @@ export default {
       this.phase = 'collapseForce'
       this.showCollapseShatter = true
 
-      // 破碎 → 坍塌截帧 →「交给时间」（不依赖配音）
+      // 破碎 → 首尾闪回坍塌 → 收黑后进「交给时间」
       this.queue(() => {
         this.showCollapseShatter = false
-      }, 3200)
+      }, 2800)
 
       this.queue(() => {
         this.goToFinale()
-      }, 11000)
+      }, 12500)
     }
   }
 }
