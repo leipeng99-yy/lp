@@ -187,6 +187,12 @@ export default {
       if (!video || !video.duration) return
       const offset = this.offsets[this.index] || 0
       this.timelinePos = offset + video.currentTime
+      const total = this.totalDuration || 1
+      this.$emit('timeline', {
+        pos: this.timelinePos,
+        total,
+        ratio: Math.min(1, this.timelinePos / total)
+      })
     },
     onEnded(e) {
       const active = this.getSlot(this.activeSlot)

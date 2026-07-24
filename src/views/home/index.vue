@@ -28,10 +28,10 @@
       :visible="dialogVisible"
       mode="ask"
       eyebrow="TEMPORAL QUERY"
-      title="是否进入尚未愈合的时间？"
+      title="是否回到尚未愈合的时间？"
       body="倒流有代价。留下，亦是一种选择。"
       :hint="harassHint"
-      primary-text="进入过去"
+      primary-text="回到过去"
       secondary-text="留在此刻"
       :position="dialogPos"
       @primary="acceptPast"
@@ -43,11 +43,12 @@
       mode="past"
       eyebrow="CROSSING THE AXIS"
       title="时间正在让路。"
-      subtitle="请跟住这一道缝隙。"
+      subtitle="正在回到过去。"
     />
 
     <PastPlayer
       v-if="phase === 'playPast'"
+      @timeline="onTimeline"
       @all-done="onAllVideosDone"
     />
 
@@ -135,8 +136,9 @@ const HARASS_HINTS = [
   '你越迟疑，裂缝越清晰。'
 ]
 
-const BGM_PLAY_VOL = 0.42
-const BGM_IDLE_VOL = 0.72
+const BGM_LOW_VOL = 0.16
+const BGM_PEAK_VOL = 0.72
+const BGM_IDLE_VOL = 0.55
 
 export default {
   name: 'Home',
@@ -165,6 +167,7 @@ export default {
       forceResume: true,
       fadingMusic: false,
       voicePlaying: false,
+      timelineRatio: 0,
       timers: []
     }
   },
@@ -182,6 +185,13 @@ export default {
       this.timers.forEach((id) => clearTimeout(id))
       this.timers = []
     },
+    volumeForTimeline(ratio) {
+      const r = Math.max(0, Math.min(1, ratio || 0))
+      if (r < 0.68) return BGM_LOW_VOL + r * 0.08
+      const t = (r - 0.68) / 0.32
+      const eased = t * t
+      return BGM_LOW_VOL + 0.08 + eased * (BGM_PEAK_VOL - BGM_LOW_VOL - 0.08)
+    },
     enterExperience() {
       this.musicUnlocked = true
       this.forceResume = true
@@ -198,7 +208,10 @@ export default {
     ensureMusic(vol) {
       const audio = this.$refs.bgm
       if (!audio || !this.musicUnlocked || this.voicePlaying) return
-      const target = typeof vol === 'number' ? vol : this.phase === 'playPast' ? BGM_PLAY_VOL : BGM_IDLE_VOL
+      let target = vol
+      if (typeof target !== 'number') {
+        target = this.phase === 'playPast' ? this.volumeForTimeline(this.timelineRatio) : BGM_IDLE_VOL
+      }
       if (!this.fadingMusic) audio.volume = target
       try {
         if (!this.fadingMusic) audio.playbackRate = 1
@@ -207,6 +220,13 @@ export default {
       }
       const p = audio.play()
       if (p && p.catch) p.catch(() => {})
+    },
+    onTimeline(payload) {
+      if (this.phase !== 'playPast' || this.fadingMusic || this.voicePlaying) return
+      this.timelineRatio = payload && payload.ratio != null ? payload.ratio : 0
+      const audio = this.$refs.bgm
+      if (!audio) return
+      audio.volume = this.volumeForTimeline(this.timelineRatio)
     },
     onAudioLoaded() {
       if (this.musicUnlocked && !this.voicePlaying) this.ensureMusic()
@@ -218,7 +238,8 @@ export default {
     onMusicStutter(payload) {
       const audio = this.$refs.bgm
       if (!audio || !this.musicUnlocked || this.fadingMusic || this.voicePlaying) return
-      const base = this.phase === 'playPast' ? BGM_PLAY_VOL : BGM_IDLE_VOL
+      const base =
+        this.phase === 'playPast' ? this.volumeForTimeline(this.timelineRatio) : BGM_IDLE_VOL
       try {
         if (payload && payload.hard) {
           audio.volume = 0
@@ -245,14 +266,15 @@ export default {
         if (done) done()
         return
       }
-      const steps = 10
-      const stepMs = Math.max(30, Math.floor(ms / steps))
+      const steps = 16
+      const stepMs = Math.max(40, Math.floor(ms / steps))
       let i = 0
       el.volume = from
       const tick = () => {
         i += 1
-        const t = i / steps
-        el.volume = Math.max(0, Math.min(1, from + (to - from) * t))
+        const x = i / steps
+        const eased = x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2
+        el.volume = Math.max(0, Math.min(1, from + (to - from) * eased))
         if (i < steps) this.queue(tick, stepMs)
         else if (done) done()
       }
@@ -270,21 +292,23 @@ export default {
       this.forceResume = false
 
       const beginVoice = () => {
-        try {
-          voice.currentTime = 0
-          voice.volume = 0
-        } catch (e) {
-          /* ignore */
-        }
-        const p = voice.play()
-        if (p && p.catch) p.catch(() => {})
-        this.fadeVolume(voice, 0, 1, 700, () => {
-          this.fadingMusic = false
-        })
+        this.queue(() => {
+          try {
+            voice.currentTime = 0
+            voice.volume = 0
+          } catch (e) {
+            /* ignore */
+          }
+          const p = voice.play()
+          if (p && p.catch) p.catch(() => {})
+          this.fadeVolume(voice, 0, 1, 1600, () => {
+            this.fadingMusic = false
+          })
+        }, 450)
       }
 
       if (bgm) {
-        this.fadeVolume(bgm, bgm.volume, 0, 800, () => {
+        this.fadeVolume(bgm, bgm.volume, 0, 2000, () => {
           try {
             bgm.pause()
           } catch (e) {
@@ -332,12 +356,16 @@ export default {
       this.ensureMusic(BGM_IDLE_VOL)
       this.queue(() => {
         this.phase = 'playPast'
-        this.ensureMusic(BGM_PLAY_VOL)
+        this.timelineRatio = 0
+        this.ensureMusic(BGM_LOW_VOL)
       }, 2800)
     },
     onAllVideosDone() {
       this.phase = 'endDisorder'
-      this.ensureMusic(BGM_IDLE_VOL)
+      const audio = this.$refs.bgm
+      if (audio && !this.voicePlaying) {
+        this.fadeVolume(audio, audio.volume, BGM_PEAK_VOL, 900)
+      }
       this.queue(() => {
         this.phase = 'signalBreak'
         this.queue(() => {
@@ -346,8 +374,8 @@ export default {
           this.fakeAnchoring = false
           this.dialogPos = { x: 50, y: 48 }
           this.dialogVisible = true
-        }, 2000)
-      }, 3400)
+        }, 2800)
+      }, 4200)
     },
     chooseStay() {
       this.clearTimers()
@@ -367,15 +395,19 @@ export default {
       this.stayHint = ''
       this.phase = 'collapseForce'
       this.showCollapseShatter = true
-      // 回到现在：晨昏线淡出 → 配音淡入
-      this.queue(() => this.startReturnVoice(), 400)
+
+      // 破碎拉长 → 强制坍塌 → 再丝滑切入配音
       this.queue(() => {
         this.showCollapseShatter = false
-      }, 1500)
-      // 若配音很长，由 onVoiceEnded 进终幕；兜底避免卡住
+      }, 3800)
+
+      this.queue(() => {
+        this.startReturnVoice()
+      }, 7800)
+
       this.queue(() => {
         if (this.phase !== 'sealedNow') this.phase = 'sealedNow'
-      }, 45000)
+      }, 60000)
     }
   }
 }

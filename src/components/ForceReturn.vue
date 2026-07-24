@@ -112,7 +112,7 @@ export default {
   z-index: 70;
   overflow: hidden;
   background: #020308;
-  animation: crushIn 3.4s cubic-bezier(0.55, 0.05, 0.35, 1) both;
+  animation: crushIn 5.6s cubic-bezier(0.55, 0.05, 0.35, 1) both;
 
   &__grid {
     position: absolute;
@@ -122,7 +122,7 @@ export default {
     grid-template-rows: repeat(2, 1fr);
     gap: 1px;
     filter: contrast(1.35) saturate(0.5) hue-rotate(8deg);
-    animation: gridSpin 3.4s ease-in both;
+    animation: gridSpin 5.6s ease-in both;
   }
 
   &__cell {
@@ -143,7 +143,7 @@ export default {
     background:
       radial-gradient(circle at 50% 50%, transparent 0%, rgba(2, 3, 8, 0.2) 40%, rgba(2, 3, 8, 0.92) 78%),
       repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.04) 0, rgba(255, 255, 255, 0.04) 1px, transparent 1px, transparent 3px);
-    animation: crushVeil 3.4s ease both;
+    animation: crushVeil 5.6s ease both;
   }
 
   &__copy {
@@ -156,7 +156,7 @@ export default {
     justify-content: center;
     text-align: center;
     padding: 0 28px;
-    animation: copyHold 3.4s ease both;
+    animation: copyHold 5.6s ease both;
   }
 
   &__eyebrow {
