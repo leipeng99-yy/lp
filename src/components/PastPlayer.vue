@@ -5,7 +5,6 @@
         ref="v0"
         class="past-player__video"
         :class="{ 'is-active': activeSlot === 0 }"
-        muted
         playsinline
         preload="auto"
         @ended="onEnded"
@@ -15,7 +14,6 @@
         ref="v1"
         class="past-player__video"
         :class="{ 'is-active': activeSlot === 1 }"
-        muted
         playsinline
         preload="auto"
         @ended="onEnded"
@@ -92,8 +90,9 @@ export default {
   mounted() {
     this.probeDurations().then(() => {
       this.ready = true
-      this.$emit('track-change', 0)
       this.loadInto(this.activeSlot, 0, true).then(() => {
+        const active = this.getSlot(this.activeSlot)
+        if (active) active.volume = 1
         this.playSlot(this.activeSlot)
         this.armNext()
       })
@@ -149,6 +148,7 @@ export default {
           try {
             if (fromStart) video.currentTime = 0
             video.playbackRate = 1
+            video.volume = slot === this.activeSlot ? 1 : 0
           } catch (e) {
             /* ignore */
           }
@@ -215,25 +215,43 @@ export default {
         this.activeSlot = toSlot
         this.crossing = false
         this.nextArmed = false
-        this.$emit('track-change', nextIndex)
         if (fromVideo) {
           try {
+            fromVideo.volume = 0
             fromVideo.pause()
           } catch (e) {
             /* ignore */
           }
         }
+        if (toVideo) toVideo.volume = 1
         this.armNext()
       }
 
       this.loadInto(toSlot, nextIndex, seekInClip == null).then(() => {
         try {
           toVideo.currentTime = seekInClip == null ? 0 : seekInClip
+          toVideo.volume = 0
         } catch (e) {
           /* ignore */
         }
         this.playSlot(toSlot)
-        window.setTimeout(finish, CROSSFADE_MS)
+        this.activeSlot = toSlot
+
+        const steps = 6
+        let i = 0
+        const fade = () => {
+          i += 1
+          const t = i / steps
+          try {
+            if (fromVideo) fromVideo.volume = Math.max(0, 1 - t)
+            if (toVideo) toVideo.volume = Math.min(1, t)
+          } catch (e) {
+            /* ignore */
+          }
+          if (i < steps) window.setTimeout(fade, Math.floor(CROSSFADE_MS / steps))
+          else finish()
+        }
+        fade()
       })
     },
     onSeek(e) {
@@ -257,6 +275,7 @@ export default {
         const video = this.getSlot(this.activeSlot)
         try {
           video.currentTime = local
+          video.volume = 1
           if (video.paused) this.playSlot(this.activeSlot)
         } catch (err) {
           /* ignore */

@@ -48,7 +48,6 @@
 
     <PastPlayer
       v-if="phase === 'playPast'"
-      @track-change="onVideoTrackChange"
       @all-done="onAllVideosDone"
     />
 
@@ -102,12 +101,18 @@
     <SealedFinale v-if="phase === 'sealedNow'" />
 
     <audio
-      ref="audio"
-      :src="currentTrack"
+      ref="bgm"
+      :src="bgmSrc"
+      loop
       preload="auto"
-      @ended="onTrackEnded"
       @pause="onMusicPause"
       @loadeddata="onAudioLoaded"
+    />
+    <audio
+      ref="voice"
+      :src="voiceSrc"
+      preload="auto"
+      @ended="onVoiceEnded"
     />
   </div>
 </template>
@@ -120,7 +125,8 @@ import PastPlayer from '@/components/PastPlayer.vue'
 import SignalDisconnect from '@/components/SignalDisconnect.vue'
 import ForceReturn from '@/components/ForceReturn.vue'
 import SealedFinale from '@/components/SealedFinale.vue'
-import { playlist } from '@/utils/playlist'
+import bgmSrc from '@/assets/music/chenhunxian.mp3'
+import voiceSrc from '@/assets/music/voice-return.mp3'
 
 const HARASS_HINTS = [
   '拒绝并不能稳住轴线。',
@@ -128,6 +134,9 @@ const HARASS_HINTS = [
   '失温不会自行平复。',
   '你越迟疑，裂缝越清晰。'
 ]
+
+const BGM_PLAY_VOL = 0.42
+const BGM_IDLE_VOL = 0.72
 
 export default {
   name: 'Home',
@@ -150,17 +159,13 @@ export default {
       fakeAnchoring: false,
       showCollapseShatter: true,
       disorderActive: true,
-      trackIndex: 0,
+      bgmSrc,
+      voiceSrc,
       musicUnlocked: false,
       forceResume: true,
       fadingMusic: false,
+      voicePlaying: false,
       timers: []
-    }
-  },
-  computed: {
-    currentTrack() {
-      if (!playlist.length) return ''
-      return playlist[this.trackIndex % playlist.length]
     }
   },
   beforeDestroy() {
@@ -180,21 +185,21 @@ export default {
     enterExperience() {
       this.musicUnlocked = true
       this.forceResume = true
-      this.trackIndex = 0
       this.phase = 'openingDisorder'
       this.disorderActive = true
       this.$nextTick(() => {
-        this.ensureMusic()
+        this.ensureMusic(BGM_IDLE_VOL)
         this.queue(() => {
           this.phase = 'askPast'
           this.spawnAskDialog()
         }, 4200)
       })
     },
-    ensureMusic() {
-      const audio = this.$refs.audio
-      if (!audio || !this.musicUnlocked) return
-      if (!this.fadingMusic) audio.volume = 1
+    ensureMusic(vol) {
+      const audio = this.$refs.bgm
+      if (!audio || !this.musicUnlocked || this.voicePlaying) return
+      const target = typeof vol === 'number' ? vol : this.phase === 'playPast' ? BGM_PLAY_VOL : BGM_IDLE_VOL
+      if (!this.fadingMusic) audio.volume = target
       try {
         if (!this.fadingMusic) audio.playbackRate = 1
       } catch (e) {
@@ -204,99 +209,96 @@ export default {
       if (p && p.catch) p.catch(() => {})
     },
     onAudioLoaded() {
-      if (this.musicUnlocked) this.ensureMusic()
-    },
-    onTrackEnded() {
-      if (!playlist.length) return
-      // 回放阶段：与视频绑定，曲终则循环本轨
-      if (this.phase === 'playPast') {
-        const audio = this.$refs.audio
-        if (audio) {
-          try {
-            audio.currentTime = 0
-          } catch (e) {
-            /* ignore */
-          }
-        }
-        this.ensureMusic()
-        return
-      }
-      this.trackIndex = (this.trackIndex + 1) % playlist.length
-      this.$nextTick(() => this.ensureMusic())
+      if (this.musicUnlocked && !this.voicePlaying) this.ensureMusic()
     },
     onMusicPause() {
-      if (!this.forceResume || !this.musicUnlocked || this.fadingMusic) return
+      if (!this.forceResume || !this.musicUnlocked || this.fadingMusic || this.voicePlaying) return
       this.queue(() => this.ensureMusic(), 40)
     },
-    fadeToTrack(index) {
-      if (!playlist.length) return
-      const next = ((index % playlist.length) + playlist.length) % playlist.length
-      if (next === this.trackIndex) {
-        this.ensureMusic()
-        return
-      }
-      const audio = this.$refs.audio
-      if (!audio) {
-        this.trackIndex = next
-        return
-      }
-      this.fadingMusic = true
-      const startVol = audio.volume
-      const steps = 6
-      let i = 0
-      const stepDown = () => {
-        i += 1
-        audio.volume = Math.max(0, startVol * (1 - i / steps))
-        if (i < steps) {
-          this.queue(stepDown, 35)
-        } else {
-          this.trackIndex = next
-          this.$nextTick(() => {
-            audio.volume = 0
-            this.ensureMusic()
-            let j = 0
-            const stepUp = () => {
-              j += 1
-              audio.volume = Math.min(1, j / steps)
-              if (j < steps) this.queue(stepUp, 40)
-              else {
-                this.fadingMusic = false
-                audio.volume = 1
-              }
-            }
-            stepUp()
-          })
-        }
-      }
-      stepDown()
-    },
-    onVideoTrackChange(index) {
-      this.fadeToTrack(index)
-    },
     onMusicStutter(payload) {
-      const audio = this.$refs.audio
-      if (!audio || !this.musicUnlocked || this.fadingMusic) return
+      const audio = this.$refs.bgm
+      if (!audio || !this.musicUnlocked || this.fadingMusic || this.voicePlaying) return
+      const base = this.phase === 'playPast' ? BGM_PLAY_VOL : BGM_IDLE_VOL
       try {
         if (payload && payload.hard) {
-          const prev = audio.volume
           audio.volume = 0
           audio.playbackRate = 0.35
           window.setTimeout(() => {
-            if (!this.$refs.audio || this.fadingMusic) return
-            this.$refs.audio.volume = prev || 1
-            this.$refs.audio.playbackRate = 1.8
-            this.ensureMusic()
+            if (!this.$refs.bgm || this.fadingMusic || this.voicePlaying) return
+            this.$refs.bgm.volume = base
+            this.$refs.bgm.playbackRate = 1.8
+            this.ensureMusic(base)
             window.setTimeout(() => {
-              if (this.$refs.audio && !this.fadingMusic) this.$refs.audio.playbackRate = 1
+              if (this.$refs.bgm && !this.fadingMusic) this.$refs.bgm.playbackRate = 1
             }, 140)
           }, 90 + Math.random() * 80)
         } else {
           audio.playbackRate = 1
-          if (!this.fadingMusic) audio.volume = 1
+          if (!this.fadingMusic) audio.volume = base
         }
       } catch (e) {
         /* ignore */
       }
+    },
+    fadeVolume(el, from, to, ms, done) {
+      if (!el) {
+        if (done) done()
+        return
+      }
+      const steps = 10
+      const stepMs = Math.max(30, Math.floor(ms / steps))
+      let i = 0
+      el.volume = from
+      const tick = () => {
+        i += 1
+        const t = i / steps
+        el.volume = Math.max(0, Math.min(1, from + (to - from) * t))
+        if (i < steps) this.queue(tick, stepMs)
+        else if (done) done()
+      }
+      tick()
+    },
+    startReturnVoice() {
+      const bgm = this.$refs.bgm
+      const voice = this.$refs.voice
+      if (!voice) {
+        this.phase = 'sealedNow'
+        return
+      }
+      this.voicePlaying = true
+      this.fadingMusic = true
+      this.forceResume = false
+
+      const beginVoice = () => {
+        try {
+          voice.currentTime = 0
+          voice.volume = 0
+        } catch (e) {
+          /* ignore */
+        }
+        const p = voice.play()
+        if (p && p.catch) p.catch(() => {})
+        this.fadeVolume(voice, 0, 1, 700, () => {
+          this.fadingMusic = false
+        })
+      }
+
+      if (bgm) {
+        this.fadeVolume(bgm, bgm.volume, 0, 800, () => {
+          try {
+            bgm.pause()
+          } catch (e) {
+            /* ignore */
+          }
+          beginVoice()
+        })
+      } else {
+        beginVoice()
+      }
+    },
+    onVoiceEnded() {
+      this.voicePlaying = false
+      this.phase = 'sealedNow'
     },
     randomPos() {
       return {
@@ -327,15 +329,15 @@ export default {
       this.dialogVisible = false
       this.disorderActive = false
       this.phase = 'shatterToPast'
-      this.ensureMusic()
+      this.ensureMusic(BGM_IDLE_VOL)
       this.queue(() => {
         this.phase = 'playPast'
+        this.ensureMusic(BGM_PLAY_VOL)
       }, 2800)
     },
     onAllVideosDone() {
-      // 最后一个视频完整结束后再紊乱
       this.phase = 'endDisorder'
-      this.ensureMusic()
+      this.ensureMusic(BGM_IDLE_VOL)
       this.queue(() => {
         this.phase = 'signalBreak'
         this.queue(() => {
@@ -365,12 +367,15 @@ export default {
       this.stayHint = ''
       this.phase = 'collapseForce'
       this.showCollapseShatter = true
+      // 回到现在：晨昏线淡出 → 配音淡入
+      this.queue(() => this.startReturnVoice(), 400)
       this.queue(() => {
         this.showCollapseShatter = false
       }, 1500)
+      // 若配音很长，由 onVoiceEnded 进终幕；兜底避免卡住
       this.queue(() => {
-        this.phase = 'sealedNow'
-      }, 5000)
+        if (this.phase !== 'sealedNow') this.phase = 'sealedNow'
+      }, 45000)
     }
   }
 }
