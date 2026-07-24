@@ -330,6 +330,7 @@ export default {
       this.phase = 'endDisorder'
       const audio = this.$refs.bgm
       if (audio) this.fadeVolume(audio, audio.volume, BGM_PEAK_VOL, 1200)
+      // 末段紊乱拉长：黑闪 + 视频截帧更久再进断联
       this.queue(() => {
         this.phase = 'signalBreak'
         this.queue(() => {
@@ -339,7 +340,7 @@ export default {
           this.dialogPos = { x: 50, y: 48 }
           this.dialogVisible = true
         }, 4200)
-      }, 7600)
+      }, 14500)
     },
     chooseStay() {
       this.clearTimers()
@@ -360,14 +361,14 @@ export default {
       this.phase = 'collapseForce'
       this.showCollapseShatter = true
 
-      // 破碎 → 坍塌画面 → 可靠进入「交给时间」（不依赖配音）
+      // 破碎 → 坍塌截帧 →「交给时间」（不依赖配音）
       this.queue(() => {
         this.showCollapseShatter = false
       }, 3200)
 
       this.queue(() => {
         this.goToFinale()
-      }, 7200)
+      }, 11000)
     }
   }
 }

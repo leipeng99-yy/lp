@@ -1,6 +1,7 @@
 <template>
   <section class="force-return" :class="{ 'is-lite': isLite }">
-    <div v-if="!isLite" class="force-return__grid">
+    <!-- 桌面 3 格狂 scrub / 手机单路低频跳帧：保留「截帧被扯回现在」 -->
+    <div class="force-return__grid" :class="{ 'is-single': isLite }">
       <div v-for="(src, i) in sources" :key="i" class="force-return__cell">
         <video
           :ref="'fv' + i"
@@ -8,16 +9,14 @@
           :src="src"
           muted
           playsinline
+          webkit-playsinline
           preload="metadata"
         />
       </div>
     </div>
-    <div v-else class="force-return__lite" aria-hidden="true">
-      <div class="force-return__lite-ring" />
-      <div class="force-return__lite-ring is-delay" />
-      <div class="force-return__lite-flash" />
-    </div>
+
     <div class="force-return__crush" />
+    <div class="force-return__flash" aria-hidden="true" />
     <div class="force-return__copy">
       <p class="force-return__eyebrow">FORCED RETURN · NOW</p>
       <h2 class="force-return__title">时空坍塌。</h2>
@@ -36,13 +35,18 @@ export default {
     return {
       sources: [],
       rafId: null,
+      jumpTimer: null,
+      blackTimer: null,
       running: false,
       isLite: isMobileDevice()
     }
   },
   mounted() {
-    if (this.isLite) return
-    this.sources = videoList.slice(0, 3).map((v) => v.src)
+    const list = videoList.map((v) => v.src)
+    // 手机：单路；桌面：三格
+    this.sources = this.isLite
+      ? [list[Math.min(2, list.length - 1)]]
+      : list.slice(0, 3)
     this.$nextTick(() => this.startBurst())
   },
   beforeDestroy() {
@@ -63,7 +67,7 @@ export default {
         const boot = () => {
           try {
             video.currentTime = Math.min(0.2, (video.duration || 1) * 0.1)
-            video.playbackRate = 3 + (i % 3)
+            video.playbackRate = this.isLite ? 2.8 + (i % 2) * 0.4 : 3 + (i % 3)
             const p = video.play()
             if (p && p.catch) p.catch(() => {})
           } catch (e) {
@@ -75,6 +79,32 @@ export default {
       })
 
       this.running = true
+
+      if (this.isLite) {
+        // 手机：定时低频跳帧，不用 rAF 狂 scrub
+        const jump = () => {
+          if (!this.running) return
+          this.getVideos().forEach((video) => {
+            if (!video.duration) return
+            try {
+              const t = 0.05 + Math.random() * Math.max(0.1, video.duration - 0.15)
+              video.currentTime = t
+              video.playbackRate = 2.5 + Math.random() * 2
+              if (video.paused) {
+                const p = video.play()
+                if (p && p.catch) p.catch(() => {})
+              }
+            } catch (e) {
+              /* ignore */
+            }
+          })
+          this.jumpTimer = window.setTimeout(jump, 280 + Math.random() * 320)
+        }
+        this.jumpTimer = window.setTimeout(jump, 200)
+        return
+      }
+
+      // 桌面：保留多路 rAF scrub
       let last = performance.now()
       const tick = (now) => {
         if (!this.running) return
@@ -98,6 +128,10 @@ export default {
       this.running = false
       if (this.rafId) cancelAnimationFrame(this.rafId)
       this.rafId = null
+      if (this.jumpTimer) clearTimeout(this.jumpTimer)
+      this.jumpTimer = null
+      if (this.blackTimer) clearTimeout(this.blackTimer)
+      this.blackTimer = null
       this.getVideos().forEach((v) => {
         try {
           v.pause()
@@ -117,7 +151,7 @@ export default {
   z-index: 70;
   overflow: hidden;
   background: #020308;
-  animation: crushIn 5.6s cubic-bezier(0.55, 0.05, 0.35, 1) both;
+  animation: crushIn 8.5s cubic-bezier(0.55, 0.05, 0.35, 1) both;
 
   &__grid {
     position: absolute;
@@ -126,7 +160,14 @@ export default {
     grid-template-columns: repeat(3, 1fr);
     gap: 1px;
     filter: contrast(1.25) saturate(0.55);
-    animation: gridSpin 5.6s ease-in both;
+    animation: gridSpin 8.5s ease-in both;
+
+    &.is-single {
+      grid-template-columns: 1fr;
+      inset: -4%;
+      filter: contrast(1.2) saturate(0.6) brightness(0.85);
+      animation: gridSpinLite 8.5s ease-in both;
+    }
   }
 
   &__cell {
@@ -141,42 +182,20 @@ export default {
     filter: brightness(0.75);
   }
 
-  &__lite {
-    position: absolute;
-    inset: 0;
-    background: radial-gradient(circle at 50% 50%, #1c0c14, #05070c 60%);
-  }
-
-  &__lite-ring {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    width: min(70vw, 420px);
-    height: min(70vw, 420px);
-    margin: calc(min(70vw, 420px) / -2) 0 0 calc(min(70vw, 420px) / -2);
-    border: 1px solid rgba(200, 208, 220, 0.35);
-    border-radius: 50%;
-    animation: ringOut 5.6s ease-out both;
-
-    &.is-delay {
-      animation-delay: 0.35s;
-      opacity: 0.45;
-    }
-  }
-
-  &__lite-flash {
-    position: absolute;
-    inset: 0;
-    background: #fff;
-    opacity: 0;
-    animation: whiteFlash 5.6s ease both;
-  }
-
   &__crush {
     position: absolute;
     inset: 0;
     background: radial-gradient(circle at 50% 50%, transparent 0%, rgba(2, 3, 8, 0.25) 40%, rgba(2, 3, 8, 0.92) 78%);
-    animation: crushVeil 5.6s ease both;
+    animation: crushVeil 8.5s ease both;
+  }
+
+  &__flash {
+    position: absolute;
+    inset: 0;
+    background: #000;
+    opacity: 0;
+    pointer-events: none;
+    animation: forceBlackFlash 8.5s steps(1) both;
   }
 
   &__copy {
@@ -189,7 +208,7 @@ export default {
     justify-content: center;
     text-align: center;
     padding: 0 28px;
-    animation: copyHold 5.6s ease both;
+    animation: copyHold 8.5s ease both;
   }
 
   &__eyebrow {
@@ -243,6 +262,15 @@ export default {
   }
 }
 
+@keyframes gridSpinLite {
+  0% {
+    transform: scale(1);
+  }
+  100% {
+    transform: scale(1.12);
+  }
+}
+
 @keyframes crushVeil {
   0% {
     opacity: 0.35;
@@ -256,7 +284,7 @@ export default {
   0% {
     opacity: 0;
   }
-  25% {
+  18% {
     opacity: 1;
   }
   100% {
@@ -264,32 +292,33 @@ export default {
   }
 }
 
-@keyframes ringOut {
-  0% {
-    transform: scale(0.55);
-    opacity: 0.9;
-  }
-  100% {
-    transform: scale(1.45);
-    opacity: 0;
-  }
-}
-
-@keyframes whiteFlash {
+@keyframes forceBlackFlash {
   0%,
   100% {
     opacity: 0;
   }
-  8% {
-    opacity: 0.55;
+  6% {
+    opacity: 0.85;
   }
-  16% {
+  9% {
     opacity: 0;
   }
-  42% {
-    opacity: 0.25;
+  22% {
+    opacity: 0.7;
   }
-  50% {
+  25% {
+    opacity: 0;
+  }
+  48% {
+    opacity: 0.55;
+  }
+  52% {
+    opacity: 0;
+  }
+  70% {
+    opacity: 0.4;
+  }
+  74% {
     opacity: 0;
   }
 }

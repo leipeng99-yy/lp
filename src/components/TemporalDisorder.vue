@@ -3,8 +3,8 @@
     class="temporal-disorder"
     :class="['is-' + mode, { 'is-dim': dim, 'is-burst': bursting, 'is-lite': isLite }]"
   >
-    <!-- 桌面：视频紊乱；手机：纯 CSS 电影闪切 -->
-    <div v-if="!isLite" class="temporal-disorder__stage">
+    <!-- 桌面 2 层 / 手机 1 路：真实视频 + 黑闪跳帧（精简截帧，非纯 CSS） -->
+    <div class="temporal-disorder__stage">
       <video
         v-for="(src, i) in layerSrcs"
         :key="mode + '-' + i"
@@ -14,12 +14,9 @@
         :src="src"
         muted
         playsinline
+        webkit-playsinline
         preload="metadata"
       />
-    </div>
-    <div v-else class="temporal-disorder__lite-stage" aria-hidden="true">
-      <div class="temporal-disorder__lite-wash" />
-      <div class="temporal-disorder__lite-slash" />
     </div>
 
     <div class="temporal-disorder__axis" aria-hidden="true" />
@@ -69,11 +66,14 @@ export default {
     }
   },
   mounted() {
-    if (!this.isLite) {
-      const list = videoList.map((v) => v.src)
+    const list = videoList.map((v) => v.src)
+    if (this.isLite) {
+      // 手机：单路视频，开场取前段，收束取末段
+      this.layerSrcs = this.mode === 'close' ? [list[list.length - 1]] : [list[0]]
+    } else {
       this.layerSrcs = this.mode === 'close' ? list.slice(-2) : list.slice(0, 2)
-      this.$nextTick(() => this.bootVideos())
     }
+    this.$nextTick(() => this.bootVideos())
     if (this.active) this.startPulse()
   },
   beforeDestroy() {
@@ -81,7 +81,6 @@ export default {
   },
   methods: {
     getVideos() {
-      if (this.isLite) return []
       const result = []
       for (let i = 0; i < this.layerSrcs.length; i++) {
         const ref = this.$refs['layer' + i]
@@ -96,7 +95,7 @@ export default {
           try {
             const dur = video.duration && !Number.isNaN(video.duration) ? video.duration : 4
             video.currentTime = Math.min(dur * (0.15 + i * 0.12), Math.max(0.1, dur - 0.2))
-            video.playbackRate = 3.5 + i
+            video.playbackRate = this.isLite ? 4 + i * 0.5 : 3.5 + i
             const p = video.play()
             if (p && p.catch) p.catch(() => {})
           } catch (e) {
@@ -109,45 +108,43 @@ export default {
     },
     calmGap() {
       if (this.sparse) return 2800 + Math.random() * 1800
-      if (this.mode === 'close') return 1800 + Math.random() * 1400
-      return this.isLite ? 1600 + Math.random() * 1000 : 1400 + Math.random() * 1200
+      // 收束：略密脉冲，体感更长的「被拉扯」
+      if (this.mode === 'close') {
+        return this.isLite ? 900 + Math.random() * 700 : 1100 + Math.random() * 900
+      }
+      return this.isLite ? 1400 + Math.random() * 900 : 1400 + Math.random() * 1200
     },
     startPulse() {
       this.stopPulse(false)
       this.running = true
-      if (!this.isLite) this.applyVideoChaos(false)
+      this.applyVideoChaos(false)
       const schedule = () => {
         if (!this.running) return
         this.pulseTimer = window.setTimeout(() => this.doBurst(schedule), this.calmGap())
       }
-      this.pulseTimer = window.setTimeout(
-        () => this.doBurst(schedule),
-        this.sparse ? 1600 : this.mode === 'close' ? 1200 : 900
-      )
+      const firstDelay = this.sparse ? 1600 : this.mode === 'close' ? 700 : 900
+      this.pulseTimer = window.setTimeout(() => this.doBurst(schedule), firstDelay)
     },
     doBurst(schedule) {
       if (!this.running) return
       this.bursting = true
       this.blackout = 0.95
-      if (!this.isLite) this.applyVideoChaos(true)
+      this.applyVideoChaos(true)
       this.$emit('stutter', { hard: true })
 
-      const flashMs = this.isLite ? 140 + Math.random() * 100 : 90 + Math.random() * 100
+      const flashMs = this.isLite ? 100 + Math.random() * 80 : 90 + Math.random() * 100
       this.pulseTimer = window.setTimeout(() => {
-        if (!this.isLite && Math.random() > 0.6) {
+        const doubleFlash = this.isLite ? Math.random() > 0.4 : Math.random() > 0.6
+        if (doubleFlash) {
           this.blackout = 0.12
           this.pulseTimer = window.setTimeout(() => {
             this.blackout = 0.9
             this.applyVideoChaos(true)
-            this.pulseTimer = window.setTimeout(() => this.endBurst(schedule), 70 + Math.random() * 80)
-          }, 70)
-        } else if (this.isLite && Math.random() > 0.45) {
-          // 手机：二次短闪，纯黑白
-          this.blackout = 0.2
-          this.pulseTimer = window.setTimeout(() => {
-            this.blackout = 0.92
-            this.pulseTimer = window.setTimeout(() => this.endBurst(schedule), 90)
-          }, 80)
+            this.pulseTimer = window.setTimeout(
+              () => this.endBurst(schedule),
+              this.isLite ? 80 + Math.random() * 60 : 70 + Math.random() * 80
+            )
+          }, this.isLite ? 70 : 70)
         } else {
           this.endBurst(schedule)
         }
@@ -156,7 +153,7 @@ export default {
     endBurst(schedule) {
       this.blackout = 0
       this.bursting = false
-      if (!this.isLite) this.applyVideoChaos(false)
+      this.applyVideoChaos(false)
       this.$emit('stutter', { hard: false })
       if (typeof schedule === 'function') schedule()
     },
@@ -164,16 +161,28 @@ export default {
       this.getVideos().forEach((video, i) => {
         try {
           if (intense) {
-            video.playbackRate = 12 + Math.random() * 6 + i * 0.5
-            if (video.duration) {
-              const jump = 0.4 + Math.random() * 1.2
-              video.currentTime = Math.min(
-                video.duration - 0.05,
-                Math.max(0.05, video.currentTime + (Math.random() > 0.5 ? jump : -jump * 0.5))
-              )
+            // 手机：中倍速 + 偶发跳帧；桌面：更狠
+            if (this.isLite) {
+              video.playbackRate = 5 + Math.random() * 3
+              if (video.duration && Math.random() > 0.25) {
+                const jump = 0.3 + Math.random() * 0.6
+                video.currentTime = Math.min(
+                  video.duration - 0.05,
+                  Math.max(0.05, video.currentTime + (Math.random() > 0.45 ? jump : -jump * 0.4))
+                )
+              }
+            } else {
+              video.playbackRate = 12 + Math.random() * 6 + i * 0.5
+              if (video.duration) {
+                const jump = 0.4 + Math.random() * 1.2
+                video.currentTime = Math.min(
+                  video.duration - 0.05,
+                  Math.max(0.05, video.currentTime + (Math.random() > 0.5 ? jump : -jump * 0.5))
+                )
+              }
             }
           } else {
-            video.playbackRate = 3 + Math.random() * 1.5 + i * 0.2
+            video.playbackRate = this.isLite ? 3.2 + Math.random() * 1.2 : 3 + Math.random() * 1.5 + i * 0.2
           }
           if (video.paused) {
             const p = video.play()
@@ -190,10 +199,11 @@ export default {
       this.pulseTimer = null
       this.blackout = 0
       this.bursting = false
-      if (resetRate && !this.isLite) {
+      if (resetRate) {
         this.getVideos().forEach((video) => {
           try {
             video.playbackRate = 1
+            video.pause()
           } catch (e) {
             /* ignore */
           }
@@ -221,8 +231,12 @@ export default {
     z-index: 65;
   }
 
-  &.is-burst:not(.is-lite) .temporal-disorder__stage {
-    transform: scale(1.06);
+  &.is-burst .temporal-disorder__stage {
+    transform: scale(1.05);
+  }
+
+  &.is-lite.is-burst .temporal-disorder__stage {
+    transform: scale(1.04);
   }
 
   &__stage {
@@ -246,35 +260,8 @@ export default {
     }
   }
 
-  &__lite-stage {
-    position: absolute;
-    inset: 0;
-    background: radial-gradient(ellipse 60% 50% at 50% 45%, #1a0a12 0%, #05070c 70%);
-  }
-
-  &__lite-wash {
-    position: absolute;
-    inset: -10%;
-    background:
-      linear-gradient(115deg, rgba(176, 30, 58, 0.22), transparent 45%, rgba(120, 160, 220, 0.12));
-    animation: liteDrift 4.5s ease-in-out infinite alternate;
-  }
-
-  &.is-burst &__lite-wash {
-    animation: liteBurst 0.35s steps(2) both;
-  }
-
-  &__lite-slash {
-    position: absolute;
-    inset: 0;
-    background: repeating-linear-gradient(
-      -18deg,
-      transparent 0,
-      transparent 46px,
-      rgba(255, 255, 255, 0.03) 46px,
-      rgba(255, 255, 255, 0.03) 48px
-    );
-    opacity: 0.7;
+  &.is-lite &__video {
+    filter: contrast(1.2) saturate(0.65) brightness(0.78);
   }
 
   &__axis {
@@ -379,32 +366,6 @@ export default {
   50% {
     opacity: 0.75;
     transform: translateX(-50%) scaleY(1);
-  }
-}
-
-@keyframes liteDrift {
-  from {
-    transform: scale(1) translateX(-2%);
-    opacity: 0.7;
-  }
-  to {
-    transform: scale(1.08) translateX(2%);
-    opacity: 1;
-  }
-}
-
-@keyframes liteBurst {
-  0% {
-    filter: invert(0);
-    transform: scale(1);
-  }
-  40% {
-    filter: invert(0.15);
-    transform: scale(1.12);
-  }
-  100% {
-    filter: invert(0);
-    transform: scale(1.04);
   }
 }
 </style>
