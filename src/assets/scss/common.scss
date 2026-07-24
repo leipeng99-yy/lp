@@ -1,0 +1,48 @@
+:root {
+  --bg-deep: #05070c;
+  --bg-wine: #0e0610;
+  --accent-gold: #c8d0dc;
+  --accent-metal: #c8d0dc;
+  --accent-chrome: #9aa8b8;
+  --accent-cold-red: #b01e3a;
+  --accent-crimson: #7a1028;
+  --accent-rose: #8f1f38;
+  --accent-blush: #c45a6e;
+  --text-primary: #e8eef5;
+  --text-muted: rgba(200, 212, 228, 0.55);
+  --metal-line: rgba(200, 208, 220, 0.42);
+  --metal-glow: rgba(176, 30, 58, 0.28);
+  --font-display: "Cormorant Garamond", "Noto Serif SC", Georgia, serif;
+  --font-body: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --bpm: 156;
+  --beat: 0.384615s;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+button {
+  font-family: inherit;
+}
